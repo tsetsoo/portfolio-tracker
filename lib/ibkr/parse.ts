@@ -59,6 +59,9 @@ function parseNumber(value: unknown, field: string): number {
 }
 
 function parseFees(value: unknown): number {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return 0;
+  }
   const raw = parseNumber(value, "commission");
   return Math.abs(raw);
 }

@@ -436,6 +436,75 @@ button {
   display: none;
 }
 
+.managed-holding-actions {
+  align-items: end;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.manual-value-form {
+  align-items: end;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
+.manual-value-form label {
+  color: var(--muted);
+  display: grid;
+  flex: 1 1 auto;
+  font-size: 9px;
+  font-weight: 700;
+  gap: 4px;
+  letter-spacing: 0.06em;
+  max-width: 200px;
+  text-transform: uppercase;
+}
+
+.manual-value-form input {
+  background: #fbfcfb;
+  border: 1px solid #bdcac5;
+  font: 12px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  min-height: 34px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.secondary-button,
+.danger-button {
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.secondary-button {
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+.secondary-button:hover {
+  border-color: var(--gain);
+  color: var(--gain);
+}
+
+.danger-button {
+  background: var(--surface);
+  color: var(--loss);
+  margin-left: auto;
+}
+
+.danger-button:hover {
+  background: var(--loss);
+  border-color: var(--loss);
+  color: #fff;
+}
+
 .lots-disclosure {
   background: #f8faf9;
   border-top: 1px solid var(--line);

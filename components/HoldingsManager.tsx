@@ -1,3 +1,7 @@
+import {
+  deleteHoldingAction,
+  updateManualValueAction,
+} from "@/app/actions/portfolio";
 import type { Lot, ValuedHolding } from "@/lib/domain/types";
 
 import { formatMoney, formatSignedMoney } from "./NetWorthHeader";
@@ -62,6 +66,40 @@ export function HoldingsManager({
                   {pl == null ? "Manual value" : formatSignedMoney(pl, currency)}
                 </span>
               </div>
+            </div>
+
+            <div className="managed-holding-actions">
+              {item.holding.type === "manual" && (
+                <form
+                  action={updateManualValueAction}
+                  className="manual-value-form"
+                >
+                  <input
+                    type="hidden"
+                    name="holdingId"
+                    value={item.holding.id}
+                  />
+                  <label>
+                    Value ({item.holding.quoteCurrency ?? currency})
+                    <input
+                      name="manualValue"
+                      type="number"
+                      step="any"
+                      defaultValue={item.holding.manualValue ?? 0}
+                      required
+                    />
+                  </label>
+                  <button type="submit" className="secondary-button">
+                    Save
+                  </button>
+                </form>
+              )}
+              <form action={deleteHoldingAction} className="delete-holding-form">
+                <input type="hidden" name="holdingId" value={item.holding.id} />
+                <button type="submit" className="danger-button">
+                  Delete
+                </button>
+              </form>
             </div>
 
             {lots.length > 0 && (

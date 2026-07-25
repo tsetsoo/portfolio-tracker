@@ -69,11 +69,13 @@ export function valueHolding(input: ValueHoldingInput): ValuedHolding {
 
   let quantity = 0;
   let avgCostPerUnit: number | null = null;
+  let costCurrency: string | null = null;
 
   try {
     const aggregated = aggregateLots(lots);
     quantity = aggregated.quantity;
     avgCostPerUnit = aggregated.avgCostPerUnit;
+    costCurrency = aggregated.costCurrency;
   } catch (error) {
     if (error instanceof MixedCostCurrencyError) {
       quantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
@@ -81,6 +83,17 @@ export function valueHolding(input: ValueHoldingInput): ValuedHolding {
     } else {
       throw error;
     }
+  }
+
+  // Display avg cost in the portfolio's base currency so it is comparable
+  // with the other base-currency columns (cost basis, value, P&L).
+  if (avgCostPerUnit !== null && costCurrency !== null) {
+    avgCostPerUnit = convertAmount(
+      avgCostPerUnit,
+      costCurrency,
+      baseCurrency,
+      fxRates,
+    );
   }
 
   const costBasisBase = costBasisBaseFromLots(lots, baseCurrency, fxRates);
@@ -120,7 +133,12 @@ export function valueHolding(input: ValueHoldingInput): ValuedHolding {
           fxRates,
         );
 
-  const pl = unrealizedPl(currentValueBase, costBasisBase);
+  // Without a live price we cannot know the position's real value, so avoid
+  // showing a misleading -100% loss against the full cost basis.
+  const pl =
+    price === null
+      ? { unrealizedPlBase: null, unrealizedPlPct: null }
+      : unrealizedPl(currentValueBase, costBasisBase);
 
   return {
     holding,

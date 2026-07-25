@@ -7,3 +7,4 @@ data/*.db-*
 .superpowers/
 .DS_Store
 .worktrees/
+tsconfig.tsbuildinfo

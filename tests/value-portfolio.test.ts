@@ -81,6 +81,119 @@ describe("valuePortfolio", () => {
     expect(getQuote).toHaveBeenCalledWith("ACME", "equity", { force: true });
   });
 
+  it("keeps valuing other holdings when a quote fetch rejects", async () => {
+    const db = makeDb();
+    db.exec(`
+      UPDATE settings SET base_currency = 'EUR' WHERE id = 1;
+      INSERT INTO holdings
+        (id, type, symbol, name, quote_currency, manual_value, notes, updated_at)
+      VALUES
+        ('equity-bad', 'equity', 'BAD', 'Bad Co', 'USD', NULL, NULL, '2026-07-20'),
+        ('equity-good', 'equity', 'GOOD', 'Good Co', 'USD', NULL, NULL, '2026-07-20');
+      INSERT INTO lots
+        (id, holding_id, quantity, cost_per_unit, cost_currency, purchased_at, fees)
+      VALUES
+        ('lot-bad', 'equity-bad', 10, 50, 'USD', '2025-01-01', 0),
+        ('lot-good', 'equity-good', 5, 20, 'USD', '2025-01-01', 0);
+    `);
+
+    const getQuote: QuoteService["getQuote"] = vi.fn(
+      async (symbol: string) => {
+        if (symbol === "BAD") {
+          throw new Error("quote provider unreachable");
+        }
+        return {
+          price: 30,
+          currency: "USD",
+          stale: false,
+          fetchedAt: "2026-07-25T09:00:00.000Z",
+        };
+      },
+    );
+    const getFxRate: QuoteService["getFxRate"] = vi.fn(async () => ({
+      rate: 1,
+      stale: false,
+    }));
+
+    const valuation = await valuePortfolio(db, {
+      getQuote,
+      getFxRate,
+      now: () => new Date("2026-07-25T12:00:00.000Z"),
+    });
+
+    expect(valuation.pricesOutdated).toBe(true);
+    expect(valuation.holdings).toHaveLength(2);
+
+    const bad = valuation.holdings.find(
+      (h) => h.holding.symbol === "BAD",
+    );
+    const good = valuation.holdings.find(
+      (h) => h.holding.symbol === "GOOD",
+    );
+
+    expect(bad).toMatchObject({
+      currentValueBase: 0,
+      unrealizedPlBase: null,
+      unrealizedPlPct: null,
+    });
+    expect(good).toMatchObject({
+      currentValueBase: 150,
+      unrealizedPlBase: 50,
+    });
+  });
+
+  it("keeps valuing other holdings when an FX rate fetch rejects", async () => {
+    const db = makeDb();
+    db.exec(`
+      UPDATE settings SET base_currency = 'EUR' WHERE id = 1;
+      INSERT INTO holdings
+        (id, type, symbol, name, quote_currency, manual_value, notes, updated_at)
+      VALUES
+        ('equity-1', 'equity', 'ACME', 'Acme Corp', 'USD', NULL, NULL, '2026-07-20'),
+        ('manual-1', 'manual', NULL, 'Cash', 'EUR', 200, NULL, '2026-07-20');
+      INSERT INTO lots
+        (id, holding_id, quantity, cost_per_unit, cost_currency, purchased_at, fees)
+      VALUES
+        ('lot-1', 'equity-1', 10, 80, 'USD', '2025-01-01', 0);
+    `);
+
+    const getQuote: QuoteService["getQuote"] = vi.fn(async () => ({
+      price: 100,
+      currency: "USD",
+      stale: false,
+      fetchedAt: "2026-07-25T09:00:00.000Z",
+    }));
+    const getFxRate: QuoteService["getFxRate"] = vi.fn(async () => {
+      throw new Error("fx provider unreachable");
+    });
+
+    const valuation = await valuePortfolio(db, {
+      getQuote,
+      getFxRate,
+      now: () => new Date("2026-07-25T12:00:00.000Z"),
+    });
+
+    expect(valuation.pricesOutdated).toBe(true);
+    expect(valuation.holdings).toHaveLength(2);
+
+    const equity = valuation.holdings.find(
+      (h) => h.holding.symbol === "ACME",
+    );
+    const manual = valuation.holdings.find((h) => h.holding.type === "manual");
+
+    // USD>EUR is missing, so the equity holding falls back to unpriced.
+    expect(equity).toMatchObject({
+      currentValueBase: 0,
+      unrealizedPlBase: null,
+      unrealizedPlPct: null,
+    });
+    // The manual holding is already in EUR (base currency), so it needs no
+    // FX conversion and values normally.
+    expect(manual).toMatchObject({
+      currentValueBase: 200,
+    });
+  });
+
   it("returns zero totals for an empty portfolio without quote calls", async () => {
     const db = makeDb();
     const getQuote: QuoteService["getQuote"] = vi.fn();

@@ -13,10 +13,19 @@ import { valuePortfolio } from "@/lib/portfolio/value-portfolio";
 
 export const dynamic = "force-dynamic";
 
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default async function Home() {
   const db = getDb();
   const valuation = await valuePortfolio(db);
-  ensureTodaySnapshot(db, valuation, valuation.asOf.slice(0, 10));
+  if (!valuation.pricesOutdated) {
+    ensureTodaySnapshot(db, valuation, localDateString(new Date()));
+  }
   const snapshots = listSnapshots(db);
   const profitLossPct =
     valuation.totalCostBase === 0

@@ -28,6 +28,25 @@ const valuedHolding: ValuedHolding = {
   unrealizedPlPct: 13.33,
 };
 
+const manualHolding: ValuedHolding = {
+  holding: {
+    id: "cash-1",
+    type: "manual",
+    symbol: null,
+    name: "Emergency fund",
+    quoteCurrency: "GBP",
+    manualValue: 500,
+    notes: null,
+    updatedAt: "2026-07-25T10:00:00.000Z",
+  },
+  quantity: 0,
+  avgCostPerUnit: null,
+  currentValueBase: 600,
+  costBasisBase: null,
+  unrealizedPlBase: null,
+  unrealizedPlPct: null,
+};
+
 describe("holdings management UI", () => {
   it("renders valued holdings with expandable lot details", () => {
     const html = renderToStaticMarkup(
@@ -58,6 +77,25 @@ describe("holdings management UI", () => {
     expect(html).toContain("$60,000.00");
     expect(html).toContain("Jul 1, 2026");
     expect(html).toContain("$12.50");
+    expect(html).toContain('name="holdingId"');
+    expect(html).toContain('value="btc"');
+    expect(html).toContain("Delete");
+  });
+
+  it("renders an inline edit form for manual holdings and no units row", () => {
+    const html = renderToStaticMarkup(
+      <HoldingsManager
+        holdings={[manualHolding]}
+        lotsByHolding={{}}
+        currency="EUR"
+      />,
+    );
+
+    expect(html).toContain('name="manualValue"');
+    expect(html).toContain('value="500"');
+    expect(html).toContain("Save");
+    expect(html).toContain("Delete");
+    expect(html).toContain('value="cash-1"');
   });
 
   it("renders separate crypto and manual holding forms", () => {

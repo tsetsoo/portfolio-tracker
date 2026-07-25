@@ -66,6 +66,27 @@ function requiredText(formData: FormData, name: string): string {
   return value.trim();
 }
 
+function requiredNumber(formData: FormData, name: string): number {
+  const value = Number(requiredText(formData, name));
+  if (!Number.isFinite(value)) {
+    throw new Error(`${name} must be a number`);
+  }
+  return value;
+}
+
+export async function updateManualValueAction(
+  formData: FormData,
+): Promise<void> {
+  const holdingId = requiredText(formData, "holdingId");
+  const value = requiredNumber(formData, "manualValue");
+  await updateManualValue(holdingId, value);
+}
+
+export async function deleteHoldingAction(formData: FormData): Promise<void> {
+  const holdingId = requiredText(formData, "holdingId");
+  await deleteHolding(holdingId);
+}
+
 function positiveNumber(formData: FormData, name: string): number {
   const value = Number(requiredText(formData, name));
   if (!Number.isFinite(value) || value <= 0) {

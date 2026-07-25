@@ -71,4 +71,19 @@ describe("parseIbkrTradesCsv", () => {
       ),
     ).toBe(true);
   });
+
+  it("defaults fees to 0 for a blank commission column", () => {
+    const csv =
+      "Symbol,Quantity,T. Price,Currency,DateTime,Comm/Fee,TransactionID\n" +
+      "NFLX,2,500.00,USD,2025-07-20 10:00:00,,TR-2001\n";
+
+    const result = parseIbkrTradesCsv(csv);
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "NFLX",
+      fees: 0,
+    });
+  });
 });

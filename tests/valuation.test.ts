@@ -91,6 +91,73 @@ describe("valueHolding", () => {
     expect(valued.currentValueBase).toBe(2250);
   });
 
+  it("converts avg cost per unit to base currency", () => {
+    const valued = valueHolding({
+      holding: {
+        id: "h1",
+        type: "equity",
+        symbol: "AAPL",
+        name: "Apple",
+        quoteCurrency: "USD",
+        manualValue: null,
+        notes: null,
+        updatedAt: "2026-01-01",
+      },
+      lots: [
+        {
+          id: "l1",
+          holdingId: "h1",
+          quantity: 10,
+          costPerUnit: 100,
+          costCurrency: "USD",
+          purchasedAt: "2024-01-01",
+          fees: 0,
+          externalTradeId: null,
+        },
+      ],
+      price: { price: 150, currency: "USD" },
+      baseCurrency: "EUR",
+      fxRates: { "USD>EUR": 0.9 },
+    });
+
+    // Native avg cost is 100 USD/unit; displayed in the EUR base currency.
+    expect(valued.avgCostPerUnit).toBeCloseTo(90);
+  });
+
+  it("does not show a fake loss when there is no live price", () => {
+    const valued = valueHolding({
+      holding: {
+        id: "h1",
+        type: "equity",
+        symbol: "AAPL",
+        name: "Apple",
+        quoteCurrency: "USD",
+        manualValue: null,
+        notes: null,
+        updatedAt: "2026-01-01",
+      },
+      lots: [
+        {
+          id: "l1",
+          holdingId: "h1",
+          quantity: 10,
+          costPerUnit: 100,
+          costCurrency: "USD",
+          purchasedAt: "2024-01-01",
+          fees: 0,
+          externalTradeId: null,
+        },
+      ],
+      price: null,
+      baseCurrency: "USD",
+      fxRates: {},
+    });
+
+    expect(valued.currentValueBase).toBe(0);
+    expect(valued.unrealizedPlBase).toBeNull();
+    expect(valued.unrealizedPlPct).toBeNull();
+  });
+
   it("manual without cost has null P&L", () => {
     const valued = valueHolding({
       holding: {

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type Database from "better-sqlite3";
 
 import { getDb } from "@/lib/db/client";

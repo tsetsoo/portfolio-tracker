@@ -1,3 +1,5 @@
+import "server-only";
+
 import Database from "better-sqlite3";
 import { migrate } from "@/lib/db/migrate";
 

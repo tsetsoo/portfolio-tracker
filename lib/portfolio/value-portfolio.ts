@@ -1,9 +1,13 @@
+import "server-only";
+
 import type Database from "better-sqlite3";
 
+import { aggregateLots, MixedCostCurrencyError } from "@/lib/domain/lots";
 import type {
   Holding,
   Lot,
   PortfolioValuation,
+  ValuedHolding,
 } from "@/lib/domain/types";
 import { valueHolding } from "@/lib/domain/valuation";
 import { createQuoteService } from "@/lib/quotes/service";
@@ -73,6 +77,34 @@ function readLots(db: Database.Database): Lot[] {
   }));
 }
 
+/**
+ * Best-effort fallback for a holding that could not be fully valued (missing
+ * quote or FX rate). Never throws: the caller relies on this to keep the
+ * rest of the portfolio valuation intact.
+ */
+function unpricedHolding(holding: Holding, lots: Lot[]): ValuedHolding {
+  let quantity = 0;
+  try {
+    quantity = aggregateLots(lots).quantity;
+  } catch (error) {
+    if (error instanceof MixedCostCurrencyError) {
+      quantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
+    } else {
+      throw error;
+    }
+  }
+
+  return {
+    holding,
+    quantity,
+    avgCostPerUnit: null,
+    currentValueBase: 0,
+    costBasisBase: null,
+    unrealizedPlBase: null,
+    unrealizedPlPct: null,
+  };
+}
+
 export async function valuePortfolio(
   db: Database.Database,
   opts: ValuePortfolioOptions = {},
@@ -89,11 +121,17 @@ export async function valuePortfolio(
   await Promise.all(
     holdings.map(async (holding) => {
       if (holding.type === "manual" || holding.symbol === null) return;
-      const quote = await getQuote(holding.symbol, holding.type, {
-        force: opts.forceRefresh,
-      });
-      quotes.set(holding.id, quote);
-      pricesOutdated ||= quote.stale;
+      try {
+        const quote = await getQuote(holding.symbol, holding.type, {
+          force: opts.forceRefresh,
+        });
+        quotes.set(holding.id, quote);
+        pricesOutdated ||= quote.stale;
+      } catch {
+        // No quote available (network/API failure with no cached price).
+        // Treat the holding as unpriced rather than failing the whole page.
+        pricesOutdated = true;
+      }
     }),
   );
 
@@ -112,23 +150,37 @@ export async function valuePortfolio(
   const fxRates: Record<string, number> = {};
   await Promise.all(
     [...currencies].map(async (currency) => {
-      const fx = await getFxRate(currency, baseCurrency, {
-        force: opts.forceRefresh,
-      });
-      fxRates[`${currency}>${baseCurrency}`] = fx.rate;
-      pricesOutdated ||= fx.stale;
+      try {
+        const fx = await getFxRate(currency, baseCurrency, {
+          force: opts.forceRefresh,
+        });
+        fxRates[`${currency}>${baseCurrency}`] = fx.rate;
+        pricesOutdated ||= fx.stale;
+      } catch {
+        // No FX rate available; holdings needing this currency will fall
+        // back to unpriced below instead of throwing.
+        pricesOutdated = true;
+      }
     }),
   );
 
-  const valuedHoldings = holdings.map((holding) =>
-    valueHolding({
-      holding,
-      lots: allLots.filter((lot) => lot.holdingId === holding.id),
-      price: quotes.get(holding.id) ?? null,
-      baseCurrency,
-      fxRates,
-    }),
-  );
+  const valuedHoldings = holdings.map((holding) => {
+    const lots = allLots.filter((lot) => lot.holdingId === holding.id);
+    try {
+      return valueHolding({
+        holding,
+        lots,
+        price: quotes.get(holding.id) ?? null,
+        baseCurrency,
+        fxRates,
+      });
+    } catch {
+      // Most likely a missing FX rate for this holding's currency. Fall
+      // back to an unpriced holding instead of failing the whole page.
+      pricesOutdated = true;
+      return unpricedHolding(holding, lots);
+    }
+  });
 
   return {
     baseCurrency,
