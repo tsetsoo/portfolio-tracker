@@ -42,6 +42,14 @@ export interface ValuedHolding {
   unrealizedPlPct: number | null;
 }
 
+export interface ValueHoldingInput {
+  holding: Holding;
+  lots: Lot[];
+  price: Quote | null;
+  baseCurrency: string;
+  fxRates: Record<string, number>;
+}
+
 export interface PortfolioValuation {
   baseCurrency: string;
   totalBase: number;
