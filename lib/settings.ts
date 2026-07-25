@@ -19,7 +19,12 @@ export function setBaseCurrency(
   db: Database.Database,
   code: string,
 ): void {
+  const normalized = code.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalized)) {
+    throw new Error("Currency code must be three letters");
+  }
+
   db.prepare("UPDATE settings SET base_currency = ? WHERE id = 1").run(
-    code.toUpperCase(),
+    normalized,
   );
 }

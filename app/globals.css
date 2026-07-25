@@ -391,6 +391,245 @@ button {
   display: none;
 }
 
+.management-page {
+  max-width: 1040px;
+}
+
+.page-header {
+  border-bottom: 1px solid var(--line);
+  padding: 9px 0 24px;
+}
+
+.page-header h1 {
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  font-size: clamp(34px, 8vw, 48px);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  line-height: 1.1;
+  margin-top: 7px;
+}
+
+.page-header > p:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+  max-width: 520px;
+}
+
+.managed-holding {
+  border-bottom: 1px solid var(--line);
+}
+
+.managed-holding:last-child {
+  border-bottom: 0;
+}
+
+.managed-holding-summary {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 15px 16px;
+}
+
+.managed-quantity {
+  display: none;
+}
+
+.lots-disclosure {
+  background: #f8faf9;
+  border-top: 1px solid var(--line);
+}
+
+.lots-disclosure summary {
+  align-items: center;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: space-between;
+  list-style: none;
+  padding: 10px 16px;
+}
+
+.lots-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.lots-disclosure summary span {
+  color: var(--gain);
+  font-size: 16px;
+}
+
+.lots-disclosure[open] summary span {
+  transform: rotate(45deg);
+}
+
+.lots-scroll {
+  overflow-x: auto;
+}
+
+.lots-table {
+  border-collapse: collapse;
+  font-size: 11px;
+  width: 100%;
+}
+
+.lots-table th {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 8px 16px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.lots-table td {
+  border-top: 1px solid var(--line);
+  padding: 10px 16px;
+  white-space: nowrap;
+}
+
+.lots-table .numeric {
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  text-align: right;
+}
+
+.management-section {
+  border-top: 1px solid var(--line);
+  margin-top: 34px;
+  padding-top: 24px;
+}
+
+.section-intro h2 {
+  font-size: 20px;
+  margin-top: 3px;
+}
+
+.holding-forms {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.asset-form,
+.settings-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.form-heading {
+  border-bottom: 1px solid var(--line);
+  margin: -2px 0 2px;
+  padding-bottom: 13px;
+}
+
+.form-heading h2 {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.asset-form label,
+.settings-form label {
+  color: var(--ink-soft);
+  display: grid;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.asset-form input,
+.settings-form input {
+  background: #fbfcfb;
+  border: 1px solid #bdcac5;
+  border-radius: 0;
+  color: var(--ink);
+  font: 13px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  min-height: 40px;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.asset-form input:focus,
+.settings-form input:focus {
+  border-color: var(--gain);
+  outline: 2px solid #dceae2;
+  outline-offset: 1px;
+}
+
+.currency-input {
+  text-transform: uppercase;
+}
+
+.form-pair {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-note,
+.settings-form p,
+.settings-form small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.primary-button {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  justify-self: start;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.primary-button:hover {
+  background: var(--ink-soft);
+}
+
+.primary-button:focus-visible {
+  outline: 2px solid #79a88e;
+  outline-offset: 3px;
+}
+
+.settings-page {
+  max-width: 760px;
+}
+
+.settings-panel {
+  margin-top: 22px;
+}
+
+.settings-form {
+  border: 0;
+  gap: 8px;
+  padding: 20px 16px 24px;
+}
+
+.settings-control {
+  align-items: stretch;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.settings-control input {
+  max-width: 130px;
+}
+
+.settings-control .primary-button {
+  justify-self: auto;
+}
+
 @media (min-width: 600px) {
   .net-worth-header {
     align-items: end;
@@ -400,6 +639,36 @@ button {
   .chart-frame,
   .chart-empty {
     height: 260px;
+  }
+
+  .managed-holding-summary {
+    grid-template-columns: minmax(0, 1fr) 120px 150px;
+  }
+
+  .managed-quantity {
+    display: grid;
+  }
+
+  .managed-quantity span {
+    color: var(--muted);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .managed-quantity strong {
+    font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+
+  .holding-forms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asset-form {
+    align-content: start;
   }
 }
 
@@ -458,6 +727,10 @@ button {
 
   .dashboard {
     padding: 34px 42px 64px;
+  }
+
+  .management-page {
+    padding-top: 42px;
   }
 
   .dashboard-toolbar {

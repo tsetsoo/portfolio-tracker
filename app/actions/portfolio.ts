@@ -21,6 +21,7 @@ export async function createHolding(
 ): Promise<Holding> {
   const holding = createHoldingInRepo(getDb(), input);
   revalidatePath("/");
+  revalidatePath("/holdings");
   return holding;
 }
 
@@ -30,6 +31,7 @@ export async function addLot(
 ): Promise<Lot> {
   const lot = addLotToRepo(getDb(), holdingId, input);
   revalidatePath("/");
+  revalidatePath("/holdings");
   return lot;
 }
 
@@ -39,15 +41,60 @@ export async function updateManualValue(
 ): Promise<Holding> {
   const holding = updateManualValueInRepo(getDb(), holdingId, value);
   revalidatePath("/");
+  revalidatePath("/holdings");
   return holding;
 }
 
 export async function deleteHolding(holdingId: string): Promise<void> {
   deleteHoldingFromRepo(getDb(), holdingId);
   revalidatePath("/");
+  revalidatePath("/holdings");
 }
 
 export async function forceRefreshPortfolio(): Promise<void> {
   await valuePortfolio(getDb(), { forceRefresh: true });
   revalidatePath("/");
+}
+
+function requiredText(formData: FormData, name: string): string {
+  const value = formData.get(name);
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function positiveNumber(formData: FormData, name: string): number {
+  const value = Number(requiredText(formData, name));
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be greater than zero`);
+  }
+  return value;
+}
+
+export async function addCryptoHolding(formData: FormData): Promise<void> {
+  const symbol = requiredText(formData, "symbol").toUpperCase();
+  const costCurrency = requiredText(formData, "costCurrency").toUpperCase();
+
+  await createHolding({
+    type: "crypto",
+    symbol,
+    name: symbol,
+    quoteCurrency: costCurrency,
+    lot: {
+      quantity: positiveNumber(formData, "quantity"),
+      costPerUnit: positiveNumber(formData, "costPerUnit"),
+      costCurrency,
+      purchasedAt: requiredText(formData, "purchasedAt"),
+    },
+  });
+}
+
+export async function addManualHolding(formData: FormData): Promise<void> {
+  await createHolding({
+    type: "manual",
+    name: requiredText(formData, "name"),
+    quoteCurrency: requiredText(formData, "currency").toUpperCase(),
+    manualValue: positiveNumber(formData, "manualValue"),
+  });
 }
