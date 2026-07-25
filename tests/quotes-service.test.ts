@@ -1,0 +1,230 @@
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { migrate } from "@/lib/db/migrate";
+import { createQuoteService } from "@/lib/quotes/service";
+
+describe("quote service cache", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-25T12:00:00.000Z"));
+    db = new Database(":memory:");
+    migrate(db);
+  });
+
+  afterEach(() => {
+    db.close();
+    vi.useRealTimers();
+  });
+
+  it("returns a cached quote within the TTL without fetching", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("AAPL", "equity", 211.5, "USD", "2026-07-25T11:55:00.000Z");
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getQuote("AAPL", "equity")).resolves.toEqual({
+      price: 211.5,
+      currency: "USD",
+      stale: false,
+      fetchedAt: "2026-07-25T11:55:00.000Z",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fetches and caches a Yahoo equity quote", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chart: {
+            result: [
+              {
+                meta: {
+                  regularMarketPrice: 212.75,
+                  currency: "USD",
+                },
+              },
+            ],
+            error: null,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getQuote("aapl", "equity")).resolves.toEqual({
+      price: 212.75,
+      currency: "USD",
+      stale: false,
+      fetchedAt: "2026-07-25T12:00:00.000Z",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d",
+    );
+    expect(
+      db
+        .prepare(
+          `SELECT price, currency, fetched_at
+           FROM price_cache
+           WHERE symbol = 'AAPL' AND asset_class = 'equity'`,
+        )
+        .get(),
+    ).toEqual({
+      price: 212.75,
+      currency: "USD",
+      fetched_at: "2026-07-25T12:00:00.000Z",
+    });
+  });
+
+  it("returns an old cached quote as stale when refresh fails", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("AAPL", "equity", 199, "USD", "2026-07-25T11:30:00.000Z");
+    const service = createQuoteService(
+      db,
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("offline")),
+    );
+
+    await expect(
+      service.getQuote("AAPL", "equity", { force: true }),
+    ).resolves.toEqual({
+      price: 199,
+      currency: "USD",
+      stale: true,
+      fetchedAt: "2026-07-25T11:30:00.000Z",
+    });
+  });
+
+  it("fetches crypto in the configured base currency", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          bitcoin: {
+            eur: 98_400,
+            usd: 115_300,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getQuote("btc", "crypto")).resolves.toMatchObject({
+      price: 98_400,
+      currency: "EUR",
+      stale: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd",
+    );
+  });
+
+  it("fetches and caches an FX rate", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          amount: 1,
+          base: "USD",
+          date: "2026-07-25",
+          rates: { EUR: 0.853 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getFxRate("usd", "eur")).resolves.toEqual({
+      rate: 0.853,
+      stale: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.frankfurter.app/latest?from=USD&to=EUR",
+    );
+    fetchImpl.mockClear();
+    await expect(service.getFxRate("USD", "EUR")).resolves.toEqual({
+      rate: 0.853,
+      stale: false,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("returns an old cached FX rate as stale when refresh fails", async () => {
+    db.prepare(
+      `INSERT INTO fx_rates
+         (from_currency, to_currency, rate, fetched_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run("USD", "EUR", 0.84, "2026-07-25T11:30:00.000Z");
+    const service = createQuoteService(
+      db,
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("offline")),
+    );
+
+    await expect(
+      service.getFxRate("USD", "EUR", { force: true }),
+    ).resolves.toEqual({
+      rate: 0.84,
+      stale: true,
+    });
+  });
+
+  it("throws a provider failure when no cache exists", async () => {
+    const service = createQuoteService(
+      db,
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response("unavailable", { status: 503 }),
+      ),
+    );
+
+    await expect(service.getQuote("AAPL", "equity")).rejects.toThrow(
+      "Yahoo request failed",
+    );
+  });
+
+  it("does not hide a cache write failure as stale provider data", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("AAPL", "equity", 199, "USD", "2026-07-25T11:30:00.000Z");
+    db.exec(`
+      CREATE TRIGGER fail_price_cache_update
+      BEFORE UPDATE ON price_cache
+      BEGIN
+        SELECT RAISE(ABORT, 'cache write failed');
+      END
+    `);
+    const service = createQuoteService(
+      db,
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            chart: {
+              result: [
+                {
+                  meta: {
+                    regularMarketPrice: 212.75,
+                    currency: "USD",
+                  },
+                },
+              ],
+              error: null,
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(service.getQuote("AAPL", "equity")).rejects.toThrow(
+      "cache write failed",
+    );
+  });
+});
