@@ -1,4 +1,4 @@
-import { aggregateLots } from "@/lib/domain/lots";
+import { aggregateLots, MixedCostCurrencyError } from "@/lib/domain/lots";
 import type {
   Lot,
   ValueHoldingInput,
@@ -74,9 +74,13 @@ export function valueHolding(input: ValueHoldingInput): ValuedHolding {
     const aggregated = aggregateLots(lots);
     quantity = aggregated.quantity;
     avgCostPerUnit = aggregated.avgCostPerUnit;
-  } catch {
-    quantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
-    avgCostPerUnit = null;
+  } catch (error) {
+    if (error instanceof MixedCostCurrencyError) {
+      quantity = lots.reduce((sum, lot) => sum + lot.quantity, 0);
+      avgCostPerUnit = null;
+    } else {
+      throw error;
+    }
   }
 
   const costBasisBase = costBasisBaseFromLots(lots, baseCurrency, fxRates);

@@ -7,6 +7,15 @@ export interface AggregatedLots {
   costCurrency: string | null;
 }
 
+export class MixedCostCurrencyError extends Error {
+  constructor() {
+    super(
+      "Cannot aggregate lots with mixed cost currencies; convert per lot in valueHolding",
+    );
+    this.name = "MixedCostCurrencyError";
+  }
+}
+
 export function aggregateLots(lots: Lot[]): AggregatedLots {
   if (lots.length === 0) {
     return {
@@ -19,9 +28,7 @@ export function aggregateLots(lots: Lot[]): AggregatedLots {
 
   const currencies = new Set(lots.map((lot) => lot.costCurrency));
   if (currencies.size > 1) {
-    throw new Error(
-      "Cannot aggregate lots with mixed cost currencies; convert per lot in valueHolding",
-    );
+    throw new MixedCostCurrencyError();
   }
 
   const costCurrency = lots[0]!.costCurrency;

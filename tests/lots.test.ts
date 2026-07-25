@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateLots } from "@/lib/domain/lots";
+import { aggregateLots, MixedCostCurrencyError } from "@/lib/domain/lots";
 
 describe("aggregateLots", () => {
   it("computes quantity and weighted average cost", () => {
@@ -59,6 +59,6 @@ describe("aggregateLots", () => {
           externalTradeId: null,
         },
       ]),
-    ).toThrow(/mixed cost currencies/i);
+    ).toThrow(MixedCostCurrencyError);
   });
 });

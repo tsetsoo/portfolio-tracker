@@ -47,6 +47,50 @@ describe("valueHolding", () => {
     expect(valued.unrealizedPlPct).toBeCloseTo(20);
   });
 
+  it("values mixed-currency lots without native avg cost", () => {
+    const valued = valueHolding({
+      holding: {
+        id: "h1",
+        type: "equity",
+        symbol: "AAPL",
+        name: "Apple",
+        quoteCurrency: "USD",
+        manualValue: null,
+        notes: null,
+        updatedAt: "2026-01-01",
+      },
+      lots: [
+        {
+          id: "l1",
+          holdingId: "h1",
+          quantity: 10,
+          costPerUnit: 100,
+          costCurrency: "USD",
+          purchasedAt: "2024-01-01",
+          fees: 0,
+          externalTradeId: null,
+        },
+        {
+          id: "l2",
+          holdingId: "h1",
+          quantity: 5,
+          costPerUnit: 80,
+          costCurrency: "EUR",
+          purchasedAt: "2024-06-01",
+          fees: 0,
+          externalTradeId: null,
+        },
+      ],
+      price: { price: 150, currency: "USD" },
+      baseCurrency: "USD",
+      fxRates: { "EUR>USD": 1.1 },
+    });
+    expect(valued.quantity).toBe(15);
+    expect(valued.avgCostPerUnit).toBeNull();
+    expect(valued.costBasisBase).toBe(1440);
+    expect(valued.currentValueBase).toBe(2250);
+  });
+
   it("manual without cost has null P&L", () => {
     const valued = valueHolding({
       holding: {
