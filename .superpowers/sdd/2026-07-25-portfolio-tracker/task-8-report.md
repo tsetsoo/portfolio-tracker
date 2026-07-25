@@ -22,3 +22,10 @@ TDD and verification evidence:
 - Full verification: 10 test files and 34 tests passed.
 - `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check`
   completed successfully.
+
+## Review follow-up
+
+- Aligned numeric input minimums with server-side positive-number validation.
+- Reused one currency normalizer for settings, crypto, and manual holdings.
+- Revalidated the Holdings page after forced price refreshes.
+- Added action regressions for malformed currencies and refresh revalidation.

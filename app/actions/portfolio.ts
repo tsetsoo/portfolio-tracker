@@ -15,6 +15,7 @@ import type {
   CreateHoldingInput,
   CreateLotInput,
 } from "@/lib/holdings-repo";
+import { normalizeCurrencyCode } from "@/lib/settings";
 
 export async function createHolding(
   input: CreateHoldingInput,
@@ -54,6 +55,7 @@ export async function deleteHolding(holdingId: string): Promise<void> {
 export async function forceRefreshPortfolio(): Promise<void> {
   await valuePortfolio(getDb(), { forceRefresh: true });
   revalidatePath("/");
+  revalidatePath("/holdings");
 }
 
 function requiredText(formData: FormData, name: string): string {
@@ -74,7 +76,9 @@ function positiveNumber(formData: FormData, name: string): number {
 
 export async function addCryptoHolding(formData: FormData): Promise<void> {
   const symbol = requiredText(formData, "symbol").toUpperCase();
-  const costCurrency = requiredText(formData, "costCurrency").toUpperCase();
+  const costCurrency = normalizeCurrencyCode(
+    requiredText(formData, "costCurrency"),
+  );
 
   await createHolding({
     type: "crypto",
@@ -94,7 +98,7 @@ export async function addManualHolding(formData: FormData): Promise<void> {
   await createHolding({
     type: "manual",
     name: requiredText(formData, "name"),
-    quoteCurrency: requiredText(formData, "currency").toUpperCase(),
+    quoteCurrency: normalizeCurrencyCode(requiredText(formData, "currency")),
     manualValue: positiveNumber(formData, "manualValue"),
   });
 }

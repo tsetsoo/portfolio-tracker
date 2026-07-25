@@ -25,14 +25,20 @@ export function HoldingForm() {
         <div className="form-pair">
           <label>
             Quantity
-            <input name="quantity" type="number" min="0" step="any" required />
+            <input
+              name="quantity"
+              type="number"
+              min="0.00000001"
+              step="any"
+              required
+            />
           </label>
           <label>
             Cost / unit
             <input
               name="costPerUnit"
               type="number"
-              min="0"
+              min="0.00000001"
               step="any"
               required
             />
@@ -75,7 +81,7 @@ export function HoldingForm() {
             <input
               name="manualValue"
               type="number"
-              min="0"
+              min="0.00000001"
               step="any"
               required
             />

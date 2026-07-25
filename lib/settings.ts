@@ -15,16 +15,19 @@ export function getSettings(db: Database.Database): Settings {
   return { id: row.id, baseCurrency: row.base_currency };
 }
 
-export function setBaseCurrency(
-  db: Database.Database,
-  code: string,
-): void {
+export function normalizeCurrencyCode(code: string): string {
   const normalized = code.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(normalized)) {
     throw new Error("Currency code must be three letters");
   }
+  return normalized;
+}
 
+export function setBaseCurrency(
+  db: Database.Database,
+  code: string,
+): void {
   db.prepare("UPDATE settings SET base_currency = ? WHERE id = 1").run(
-    normalized,
+    normalizeCurrencyCode(code),
   );
 }

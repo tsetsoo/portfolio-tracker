@@ -70,6 +70,7 @@ describe("holdings management UI", () => {
     expect(html).toContain('name="purchasedAt"');
     expect(html).toContain("Add manual asset");
     expect(html).toContain('name="manualValue"');
+    expect(html.match(/min="0.00000001"/g)).toHaveLength(3);
   });
 });
 
