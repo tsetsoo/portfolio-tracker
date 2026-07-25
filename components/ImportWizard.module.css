@@ -1,0 +1,177 @@
+.wizard {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.step {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.stepLabel {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+
+.stepLabel > span {
+  color: var(--gain);
+  font: 600 24px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  letter-spacing: -0.08em;
+}
+
+.stepLabel h2 {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.hiddenInput {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.filePicker {
+  align-items: center;
+  background: #f8faf9;
+  border: 1px dashed #9cafaa;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.filePicker span {
+  color: var(--muted);
+  font: 11px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+}
+
+.filePicker strong {
+  color: var(--gain);
+  font-size: 12px;
+}
+
+.filePicker:focus-visible {
+  outline: 2px solid #79a88e;
+  outline-offset: 3px;
+}
+
+.filePicker:disabled,
+.step :global(.primary-button):disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.counts {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.counts span {
+  background: #f3f7f5;
+  color: var(--muted);
+  display: grid;
+  font-size: 9px;
+  gap: 2px;
+  padding: 10px;
+  text-transform: uppercase;
+}
+
+.counts strong {
+  color: var(--ink);
+  font: 600 18px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  font-size: 11px;
+  min-width: 680px;
+  width: 100%;
+}
+
+.table th {
+  background: #f8faf9;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 9px 10px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.table td {
+  border-top: 1px solid var(--line);
+  padding: 10px;
+  white-space: nowrap;
+}
+
+.table .numeric {
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  text-align: right;
+}
+
+.empty,
+.message {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.empty {
+  border: 1px dashed var(--line);
+  padding: 24px;
+  text-align: center;
+}
+
+.errors {
+  background: var(--warning-wash);
+  border-left: 3px solid #bd8c31;
+  color: #644b21;
+  font-size: 11px;
+  padding: 10px 12px;
+}
+
+.errors summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.errors ul {
+  list-style: none;
+  margin-top: 8px;
+}
+
+.message {
+  background: var(--gain-wash);
+  border-left: 3px solid var(--gain);
+  color: #285d44;
+  padding: 11px 13px;
+}
+
+@media (min-width: 600px) {
+  .step {
+    padding: 22px;
+  }
+
+  .counts span {
+    padding: 12px 14px;
+  }
+}
