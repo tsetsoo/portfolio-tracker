@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+
+import { AppShell } from "@/components/AppShell";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Portfolio Tracker",
-  description: "Personal portfolio tracker",
+  title: "Portfolio Ledger",
+  description: "A clear, private view of your portfolio",
 };
 
 export default function RootLayout({
@@ -13,7 +16,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

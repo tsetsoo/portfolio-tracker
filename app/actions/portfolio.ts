@@ -10,6 +10,7 @@ import {
   deleteHolding as deleteHoldingFromRepo,
   updateManualValue as updateManualValueInRepo,
 } from "@/lib/holdings-repo";
+import { valuePortfolio } from "@/lib/portfolio/value-portfolio";
 import type {
   CreateHoldingInput,
   CreateLotInput,
@@ -43,5 +44,10 @@ export async function updateManualValue(
 
 export async function deleteHolding(holdingId: string): Promise<void> {
   deleteHoldingFromRepo(getDb(), holdingId);
+  revalidatePath("/");
+}
+
+export async function forceRefreshPortfolio(): Promise<void> {
+  await valuePortfolio(getDb(), { forceRefresh: true });
   revalidatePath("/");
 }
