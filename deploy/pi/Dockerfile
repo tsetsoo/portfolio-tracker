@@ -11,7 +11,13 @@
 # Must include linux/arm/v7 so QEMU/buildx can produce Pi-compatible natives.
 FROM node:18.19.1-buster AS deps
 WORKDIR /app
-RUN apt-get update \
+# Buster is EOL — packages only on archive.debian.org now.
+RUN sed -i \
+      -e 's|deb.debian.org/debian|archive.debian.org/debian|g' \
+      -e 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' \
+      -e '/buster-updates/d' \
+      /etc/apt/sources.list \
+  && apt-get -o Acquire::Check-Valid-Until=false update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
