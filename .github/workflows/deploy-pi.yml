@@ -38,6 +38,8 @@ jobs:
         run: |
           test -f pi-dist/server.js
           printf '%s\n' "${GITHUB_SHA}" > pi-dist/SHA
+          # Avoid 0700 dirs from Docker export — Pi service runs as user pi.
+          chmod -R a+rX pi-dist
           tar -C pi-dist -czf portfolio-pi.tar.gz .
           printf '%s\n' "${GITHUB_SHA}" > SHA
           ls -lh portfolio-pi.tar.gz SHA

@@ -63,6 +63,11 @@ if [[ "$extracted_sha" != "$remote_sha" ]]; then
   exit 1
 fi
 
+# Docker/buildx export can leave dirs as 0700 root — systemd User=pi needs
+# traverse+read to chdir into WorkingDirectory and load the standalone tree.
+chmod -R a+rX "$dest"
+chown -R pi:pi "$dest"
+
 flip_current "$dest"
 
 restart_failed=0
