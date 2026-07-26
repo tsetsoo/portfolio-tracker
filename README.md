@@ -21,6 +21,25 @@ npm run dev
 npm test
 ```
 
-## IBKR
+## Import (desktop)
 
-Desktop → Import → upload Flex/Activity trades CSV.
+- **Interactive Brokers** — Import → IBKR → Flex/Activity trades CSV (equities)
+- **Binance** — Import → Binance → Spot Trade History CSV (crypto buys only)
+- **Crypto.com** — Import → Crypto.com → App transaction history or Exchange trade history CSV (buys / receive-side exchanges)
+
+USDT/USDC lots convert via USD for FX. Unsupported CoinGecko symbols import as lots but stay unpriced until mapped.
+
+## Raspberry Pi (Tailscale)
+
+Same layout idea as the todo app (`/opt/todo` → `/opt/portfolio`). Listens on **`:8081`** so it does not clash with todo on `:8080`.
+
+```bash
+# once on the Pi
+scp -r deploy/pi raspberrypi:~/portfolio-deploy
+ssh raspberrypi 'cd ~/portfolio-deploy && sudo ./install-node.sh && sudo ./bootstrap.sh'
+
+# from this repo on your Mac (builds on the Pi)
+./deploy/pi/sync-and-build.sh
+```
+
+Then open `http://raspberrypi:8081` or `http://100.118.255.23:8081` on the tailnet.

@@ -227,4 +227,18 @@ describe("quote service cache", () => {
       "cache write failed",
     );
   });
+
+  it("treats USDT as USD for FX conversion", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ rates: { EUR: 0.92 } }), { status: 200 }),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getFxRate("USDT", "EUR")).resolves.toEqual({
+      rate: 0.92,
+      stale: false,
+    });
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("from=USD");
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("to=EUR");
+  });
 });

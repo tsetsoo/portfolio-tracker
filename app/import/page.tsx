@@ -7,8 +7,8 @@ export default function ImportPage() {
         <p className="eyebrow">Broker activity</p>
         <h1>Import trades</h1>
         <p>
-          Preview an Interactive Brokers CSV, remove trades already recorded,
-          then add the new lots in one transaction.
+          Upload Interactive Brokers, Binance, or Crypto.com CSVs, preview
+          buys, skip duplicates, then commit lots in one transaction.
         </p>
       </header>
 

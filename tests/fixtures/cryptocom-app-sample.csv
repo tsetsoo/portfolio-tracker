@@ -1,0 +1,6 @@
+Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash
+2025-02-10 12:00:00,Buy BTC,BTC,0.01,,,EUR,850.00,920.00,crypto_purchase,hash-btc-1
+2025-02-11 09:30:00,USDT -> ETH,USDT,-1600,ETH,0.5,EUR,1480.00,1600.00,crypto_exchange,hash-eth-1
+2025-02-12 15:00:00,BTC -> EUR,BTC,-0.005,EUR,400.00,EUR,400.00,430.00,crypto_viban_exchange,hash-sell-1
+2025-02-13 10:00:00,Card Cashback,CRO,5,,,EUR,0.50,0.54,referral_card_cashback,hash-reward-1
+2025-02-14 11:00:00,Buy SOL,SOL,not-a-qty,,,EUR,100.00,108.00,crypto_purchase,hash-bad-1

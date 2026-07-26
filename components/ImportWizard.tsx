@@ -3,19 +3,93 @@
 import { useRef, useState, useTransition } from "react";
 
 import {
+  commitBinanceRows,
+  commitCryptoComRows,
   commitIbkrRows,
+  previewBinanceCsv,
+  previewCryptoComCsv,
   previewIbkrCsv,
 } from "@/app/actions/import";
+import type { BinanceImportPreview } from "@/lib/binance/commit";
+import type { CryptoComImportPreview } from "@/lib/cryptocom/commit";
 import type { IbkrImportPreview } from "@/lib/ibkr/commit";
 
 import styles from "./ImportWizard.module.css";
 
+type Broker = "ibkr" | "binance" | "cryptocom";
+
+type Preview =
+  | IbkrImportPreview
+  | BinanceImportPreview
+  | CryptoComImportPreview;
+
+const BROKER_COPY: Record<
+  Broker,
+  { label: string; title: string; hint: string; assetLabel: string }
+> = {
+  ibkr: {
+    label: "Interactive Brokers",
+    title: "Select an IBKR trades CSV",
+    hint: "Export Flex/Activity trades from Interactive Brokers. Lots are stored as equities.",
+    assetLabel: "Symbol",
+  },
+  binance: {
+    label: "Binance",
+    title: "Select a Binance spot trades CSV",
+    hint: "Orders → Spot → Trade History → Export. Only BUY fills are imported as crypto lots (USDT treated as USD for FX).",
+    assetLabel: "Asset",
+  },
+  cryptocom: {
+    label: "Crypto.com",
+    title: "Select a Crypto.com CSV",
+    hint: "App: Accounts → History → Export, or Exchange trade history. Buys and crypto_exchange receives become crypto lots; sells/rewards are skipped.",
+    assetLabel: "Asset",
+  },
+};
+
+async function previewForBroker(broker: Broker, text: string): Promise<Preview> {
+  switch (broker) {
+    case "ibkr":
+      return previewIbkrCsv(text);
+    case "binance":
+      return previewBinanceCsv(text);
+    case "cryptocom":
+      return previewCryptoComCsv(text);
+  }
+}
+
+async function commitForBroker(
+  broker: Broker,
+  rows: Preview["toInsert"],
+): Promise<{ inserted: number }> {
+  switch (broker) {
+    case "ibkr":
+      return commitIbkrRows(rows as never);
+    case "binance":
+      return commitBinanceRows(rows as never);
+    case "cryptocom":
+      return commitCryptoComRows(rows as never);
+  }
+}
+
 export function ImportWizard() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [broker, setBroker] = useState<Broker>("ibkr");
   const [fileName, setFileName] = useState("");
-  const [preview, setPreview] = useState<IbkrImportPreview | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  const copy = BROKER_COPY[broker];
+
+  function selectBroker(next: Broker) {
+    if (next === broker) return;
+    setBroker(next);
+    setPreview(null);
+    setMessage("");
+    setFileName("");
+    if (inputRef.current) inputRef.current.value = "";
+  }
 
   function chooseFile(file: File | undefined) {
     setPreview(null);
@@ -25,8 +99,7 @@ export function ImportWizard() {
 
     startTransition(async () => {
       try {
-        const result = await previewIbkrCsv(await file.text());
-        setPreview(result);
+        setPreview(await previewForBroker(broker, await file.text()));
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Could not preview this CSV.",
@@ -40,7 +113,7 @@ export function ImportWizard() {
 
     startTransition(async () => {
       try {
-        const result = await commitIbkrRows(preview.toInsert);
+        const result = await commitForBroker(broker, preview.toInsert);
         setMessage(
           `${result.inserted} ${result.inserted === 1 ? "lot" : "lots"} imported.`,
         );
@@ -63,14 +136,37 @@ export function ImportWizard() {
         <div className={styles.stepLabel}>
           <span>01</span>
           <div>
-            <p className="eyebrow">Source file</p>
-            <h2>Select an IBKR trades CSV</h2>
+            <p className="eyebrow">Broker</p>
+            <h2>Choose import source</h2>
           </div>
         </div>
-        <p className="form-note">
-          Export your trades from Interactive Brokers. Your file stays on this
-          computer.
-        </p>
+        <div className={styles.brokerTabs} role="tablist" aria-label="Broker">
+          {(Object.keys(BROKER_COPY) as Broker[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={broker === key}
+              className={
+                broker === key ? styles.brokerTabActive : styles.brokerTab
+              }
+              onClick={() => selectBroker(key)}
+            >
+              {BROKER_COPY[key].label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.step}>
+        <div className={styles.stepLabel}>
+          <span>02</span>
+          <div>
+            <p className="eyebrow">Source file</p>
+            <h2>{copy.title}</h2>
+          </div>
+        </div>
+        <p className="form-note">{copy.hint}</p>
         <input
           ref={inputRef}
           className={styles.hiddenInput}
@@ -92,7 +188,7 @@ export function ImportWizard() {
       {preview && (
         <section className={styles.step}>
           <div className={styles.stepLabel}>
-            <span>02</span>
+            <span>03</span>
             <div>
               <p className="eyebrow">Review</p>
               <h2>Trades ready to import</h2>
@@ -116,7 +212,7 @@ export function ImportWizard() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Symbol</th>
+                    <th>{copy.assetLabel}</th>
                     <th>Date</th>
                     <th className={styles.numeric}>Quantity</th>
                     <th className={styles.numeric}>Cost / unit</th>
@@ -145,9 +241,7 @@ export function ImportWizard() {
               </table>
             </div>
           ) : (
-            <p className={styles.empty}>
-              No new trades found in this file.
-            </p>
+            <p className={styles.empty}>No new trades found in this file.</p>
           )}
 
           {preview.errors.length > 0 && (

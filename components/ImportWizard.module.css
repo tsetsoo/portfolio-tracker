@@ -42,6 +42,38 @@
   width: 1px;
 }
 
+.brokerTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.brokerTab,
+.brokerTabActive {
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 14px;
+}
+
+.brokerTab {
+  background: #f8faf9;
+  color: var(--ink-soft);
+}
+
+.brokerTabActive {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #f4f7f5;
+}
+
+.brokerTab:focus-visible,
+.brokerTabActive:focus-visible {
+  outline: 2px solid #79a88e;
+  outline-offset: 3px;
+}
+
 .filePicker {
   align-items: center;
   background: #f8faf9;

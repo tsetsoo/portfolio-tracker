@@ -1,10 +1,28 @@
 const COINGECKO_IDS: Record<string, string> = {
   BTC: "bitcoin",
   ETH: "ethereum",
+  CRO: "crypto-com-chain",
   SOL: "solana",
   ADA: "cardano",
   XRP: "ripple",
   DOGE: "dogecoin",
+  BNB: "binancecoin",
+  AVAX: "avalanche-2",
+  DOT: "polkadot",
+  MATIC: "matic-network",
+  POL: "polygon-ecosystem-token",
+  LINK: "chainlink",
+  LTC: "litecoin",
+  ATOM: "cosmos",
+  NEAR: "near",
+  UNI: "uniswap",
+  AAVE: "aave",
+  SUI: "sui",
+  APT: "aptos",
+  ARB: "arbitrum",
+  OP: "optimism",
+  TON: "the-open-network",
+  TRX: "tron",
 };
 
 type CoinGeckoResponse = Record<string, Record<string, number>>;

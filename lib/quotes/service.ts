@@ -15,6 +15,20 @@ import type {
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+/** Stablecoins → USD for ECB FX (Frankfurter has no USDT/USDC). */
+const FX_ALIASES: Record<string, string> = {
+  USDT: "USD",
+  USDC: "USD",
+  BUSD: "USD",
+  TUSD: "USD",
+  FDUSD: "USD",
+};
+
+function normalizeFxCurrency(code: string): string {
+  const upper = code.toUpperCase();
+  return FX_ALIASES[upper] ?? upper;
+}
+
 interface PriceCacheRow {
   price: number;
   currency: string;
@@ -118,8 +132,11 @@ export function createQuoteService(
       rawTo: string,
       opts?: { force?: boolean },
     ): Promise<FxRate> {
-      const from = rawFrom.toUpperCase();
-      const to = rawTo.toUpperCase();
+      const from = normalizeFxCurrency(rawFrom);
+      const to = normalizeFxCurrency(rawTo);
+      if (from === to) {
+        return { rate: 1, stale: false };
+      }
       const cached = readFxRate(from, to);
 
       if (cached && !opts?.force && isFresh(cached.fetched_at)) {
