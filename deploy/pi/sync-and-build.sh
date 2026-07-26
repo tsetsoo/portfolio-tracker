@@ -41,16 +41,23 @@ cd ${REMOTE_SRC}
 npm_config_build_from_source=true npm ci --no-fund --no-audit
 npm run build
 test -f .next/standalone/server.js
-rm -rf ${REMOTE_RELEASE}
-mkdir -p ${REMOTE_RELEASE}
-cp -a .next/standalone/. ${REMOTE_RELEASE}/
-mkdir -p ${REMOTE_RELEASE}/.next
-cp -a .next/static ${REMOTE_RELEASE}/.next/static
-if [[ -d public ]]; then cp -a public ${REMOTE_RELEASE}/public; fi
-echo ${SHA} > ${REMOTE_RELEASE}/SHA
+# releases/ is root-owned (bootstrap); stage as pi then install with sudo
+stage="\$HOME/portfolio-release-${SHA}"
+rm -rf "\$stage"
+mkdir -p "\$stage"
+cp -a .next/standalone/. "\$stage"/
+mkdir -p "\$stage"/.next
+cp -a .next/static "\$stage"/.next/static
+if [[ -d public ]]; then cp -a public "\$stage"/public; fi
+echo ${SHA} > "\$stage"/SHA
+sudo rm -rf ${REMOTE_RELEASE}
+sudo mkdir -p ${REMOTE_RELEASE}
+sudo cp -a "\$stage"/. ${REMOTE_RELEASE}/
+sudo chown -R root:root ${REMOTE_RELEASE}
+rm -rf "\$stage"
 # Atomic symlink flip (same trick as todo-update.sh)
 tmp=/opt/portfolio/current.tmp
-ln -sfn ${REMOTE_RELEASE} \$tmp
+sudo ln -sfn ${REMOTE_RELEASE} \$tmp
 if mv --version >/dev/null 2>&1; then
   sudo mv -Tf \$tmp /opt/portfolio/current
 else
@@ -60,7 +67,7 @@ sudo systemctl restart portfolio.service
 sleep 3
 systemctl is-active portfolio.service
 curl -fsS -o /dev/null -w "health %{http_code}\\n" http://127.0.0.1:8081/ || true
-journalctl -u portfolio.service -n 30 --no-pager || true
+journalctl -u portfolio.service -n 40 --no-pager || true
 EOF
 
 echo "deployed $SHA → http://${PI_HOST}:8081 / http://100.118.255.23:8081"
