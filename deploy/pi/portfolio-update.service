@@ -1,0 +1,9 @@
+[Unit]
+Description=Pull latest portfolio-tracker release from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/portfolio/portfolio-update.sh

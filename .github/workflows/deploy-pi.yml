@@ -1,0 +1,60 @@
+name: Deploy Pi
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-pi
+  cancel-in-progress: true
+
+jobs:
+  deploy-pi:
+    name: Build armv7 (Buster) + publish pi-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Next standalone for linux/arm/v7 (node:18-buster)
+        run: |
+          docker buildx build \
+            --platform linux/arm/v7 \
+            -f deploy/pi/Dockerfile \
+            --target export \
+            --output type=local,dest=./pi-dist \
+            .
+
+      - name: Pack release
+        run: |
+          test -f pi-dist/server.js
+          printf '%s\n' "${GITHUB_SHA}" > pi-dist/SHA
+          tar -C pi-dist -czf portfolio-pi.tar.gz .
+          printf '%s\n' "${GITHUB_SHA}" > SHA
+          ls -lh portfolio-pi.tar.gz SHA
+          # sanity: tarball must contain the Next server entrypoint
+          tar -tzf portfolio-pi.tar.gz | grep -E '(^|/)server\.js$' >/dev/null
+
+      - name: Publish pi-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view pi-latest >/dev/null 2>&1; then
+            gh release upload pi-latest portfolio-pi.tar.gz SHA --clobber
+          else
+            gh release create pi-latest portfolio-pi.tar.gz SHA \
+              --title "Pi deploy (rolling)" \
+              --notes "Rolling Next.js standalone artifact for raspberrypi (armv7 / Buster). Updated on every main push." \
+              --latest=false
+          fi
+          git tag -f pi-latest "$GITHUB_SHA"
+          git push -f origin refs/tags/pi-latest

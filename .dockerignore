@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.worktrees
+pi-dist
+*.md
+docs
+.env
+.env.*
+deploy/pi/sync-and-build.sh

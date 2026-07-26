@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# EMERGENCY FALLBACK — preferred path is GitHub Actions → pi-latest → portfolio-update.sh
+# (see .github/workflows/deploy-pi.yml). Use this only when CI is down or you need a
+# one-off on-device build.
+#
 # Run FROM YOUR MAC (not the Pi).
 # Syncs the worktree to the Pi, builds there, flips /opt/portfolio/current, restarts.
 #
