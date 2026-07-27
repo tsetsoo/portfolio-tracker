@@ -16,6 +16,7 @@ import type {
 } from "@/lib/binance/commit";
 import type { CryptoComImportPreview } from "@/lib/cryptocom/commit";
 import type { IbkrImportPreview } from "@/lib/ibkr/commit";
+import { combineCsvTexts } from "@/lib/import/combine-csv";
 
 import styles from "./ImportWizard.module.css";
 
@@ -37,12 +38,12 @@ const BINANCE_FORMAT_COPY: Record<
   { title: string; hint: string }
 > = {
   spot: {
-    title: "Select a Binance Spot Trade History CSV",
-    hint: "Orders → Spot → Trade History → Export. Buys and sells are netted FIFO; fully sold coins are skipped.",
+    title: "Select Binance Spot Trade History CSV(s)",
+    hint: "Orders → Spot → Trade History → Export. Select multiple date-range exports to net sells correctly (FIFO).",
   },
   "auto-invest": {
-    title: "Select a Binance Auto-Invest History CSV",
-    hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units).",
+    title: "Select Binance Auto-Invest History CSV(s)",
+    hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units). Multiple files are combined.",
   },
 };
 
@@ -52,8 +53,8 @@ function brokerCopy(
 ): { title: string; hint: string; assetLabel: string } {
   if (broker === "ibkr") {
     return {
-      title: "Select an IBKR trades CSV",
-      hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Buys become equity lots; sells are skipped.",
+      title: "Select IBKR trades CSV(s)",
+      hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Select multiple exports if needed; buys become equity lots, sells are skipped.",
       assetLabel: "Symbol",
     };
   }
@@ -61,8 +62,8 @@ function brokerCopy(
     return { ...BINANCE_FORMAT_COPY[binanceFormat], assetLabel: "Asset" };
   }
   return {
-    title: "Select a Crypto.com CSV",
-    hint: "App: Accounts → History → Export (combine date-range CSVs first). Buys/sells/withdrawals are netted FIFO; rewards skipped.",
+    title: "Select Crypto.com CSV(s)",
+    hint: "App: Accounts → History → Export. Select multiple date-range CSVs to net sells correctly (FIFO); rewards skipped.",
     assetLabel: "Asset",
   };
 }
@@ -127,17 +128,24 @@ export function ImportWizard() {
     resetFile();
   }
 
-  function chooseFile(file: File | undefined) {
+  function fileLabel(files: File[]): string {
+    if (files.length === 0) return "";
+    if (files.length === 1) return files[0]!.name;
+    return `${files.length} files combined`;
+  }
+
+  function chooseFiles(fileList: FileList | null) {
     setPreview(null);
     setMessage("");
-    setFileName(file?.name ?? "");
-    if (!file) return;
+    const files = fileList ? Array.from(fileList) : [];
+    setFileName(fileLabel(files));
+    if (files.length === 0) return;
 
     startTransition(async () => {
       try {
-        setPreview(
-          await previewForBroker(broker, await file.text(), binanceFormat),
-        );
+        const texts = await Promise.all(files.map((file) => file.text()));
+        const combined = combineCsvTexts(texts);
+        setPreview(await previewForBroker(broker, combined, binanceFormat));
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Could not preview this CSV.",
@@ -244,7 +252,8 @@ export function ImportWizard() {
           className={styles.hiddenInput}
           type="file"
           accept=".csv,text/csv"
-          onChange={(event) => chooseFile(event.target.files?.[0])}
+          multiple
+          onChange={(event) => chooseFiles(event.target.files)}
         />
         <button
           className={styles.filePicker}
@@ -253,7 +262,9 @@ export function ImportWizard() {
           onClick={() => inputRef.current?.click()}
         >
           <span>{fileName || "No CSV selected"}</span>
-          <strong>{isPending && !preview ? "Reading…" : "Choose CSV"}</strong>
+          <strong>
+            {isPending && !preview ? "Reading…" : "Choose CSV(s)"}
+          </strong>
         </button>
       </section>
 
