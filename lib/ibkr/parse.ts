@@ -122,9 +122,21 @@ function extractTransactionHistoryTable(csvText: string): NormalizedTable | null
     skipEmptyLines: true,
   });
 
-  let headerFields: string[] | null = null;
-  const records: NormalizedTable["records"] = [];
+  const headerRow = parsed.data.find(
+    (raw) =>
+      String(raw[0] ?? "").trim() === "Transaction History" &&
+      String(raw[1] ?? "").trim().toLowerCase() === "header",
+  );
+  if (!headerRow) {
+    return null;
+  }
 
+  const fields = headerRow.slice(2).map((h) => String(h ?? "").trim());
+  if (fields.length === 0) {
+    return null;
+  }
+
+  const records: NormalizedTable["records"] = [];
   parsed.data.forEach((raw, index) => {
     const line = index + 1;
     if (raw.length < 2) {
@@ -132,28 +144,18 @@ function extractTransactionHistoryTable(csvText: string): NormalizedTable | null
     }
     const section = String(raw[0] ?? "").trim();
     const rowType = String(raw[1] ?? "").trim().toLowerCase();
-    if (section !== "Transaction History") {
-      return;
-    }
-    if (rowType === "header") {
-      headerFields = raw.slice(2).map((h) => String(h ?? "").trim());
-      return;
-    }
-    if (rowType !== "data" || headerFields === null) {
+    if (section !== "Transaction History" || rowType !== "data") {
       return;
     }
     const values = raw.slice(2);
     const record: Record<string, string> = {};
-    headerFields.forEach((header, i) => {
+    fields.forEach((header, i) => {
       record[header] = values[i] !== undefined ? String(values[i]) : "";
     });
     records.push({ record, line });
   });
 
-  if (headerFields === null || headerFields.length === 0) {
-    return null;
-  }
-  return { fields: headerFields, records };
+  return { fields, records };
 }
 
 function extractFlatTable(csvText: string): NormalizedTable {
