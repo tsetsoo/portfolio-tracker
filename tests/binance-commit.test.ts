@@ -82,4 +82,28 @@ describe("Binance import commit", () => {
       count: 0,
     });
   });
+
+  it("imports Auto-Invest Success rows as crypto lots", () => {
+    const autoCsv = readFileSync(
+      path.join(__dirname, "fixtures", "binance-auto-invest-sample.csv"),
+      "utf8",
+    );
+    const preview = previewBinanceImport(db, autoCsv, "auto-invest");
+    expect(preview.toInsert).toHaveLength(4);
+    expect(commitBinanceImport(db, preview.toInsert)).toEqual({ inserted: 4 });
+
+    const holdings = db
+      .prepare(
+        "SELECT type, symbol FROM holdings ORDER BY symbol",
+      )
+      .all();
+    expect(holdings).toEqual([
+      { type: "crypto", symbol: "BTC" },
+      { type: "crypto", symbol: "ETH" },
+    ]);
+
+    const repeated = previewBinanceImport(db, autoCsv, "auto-invest");
+    expect(repeated.toInsert).toEqual([]);
+    expect(repeated.duplicates).toHaveLength(4);
+  });
 });

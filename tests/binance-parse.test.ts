@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseBinanceTradesCsv } from "@/lib/binance/parse";
+import { parseBinanceAutoInvestCsv, parseBinanceTradesCsv } from "@/lib/binance/parse";
 
 const fixturePath = path.join(
   __dirname,
@@ -86,5 +86,56 @@ describe("parseBinanceTradesCsv", () => {
       fees: 1.4,
       purchasedAt: "2025-04-01",
     });
+  });
+});
+
+describe("parseBinanceAutoInvestCsv", () => {
+  it("parses successful Auto-Invest rows into crypto lots", () => {
+    const csv = readFileSync(
+      path.join(__dirname, "fixtures", "binance-auto-invest-sample.csv"),
+      "utf8",
+    );
+    const result = parseBinanceAutoInvestCsv(csv);
+
+    expect(result.rows).toHaveLength(4);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "BTC",
+      quantity: 0.00089732,
+      costCurrency: "EUR",
+      purchasedAt: "2026-07-08",
+      fees: 0,
+      externalTradeId: expect.stringMatching(/^binance-auto:/),
+    });
+    expect(result.rows[0].costPerUnit).toBeCloseTo(50 / 0.00089732);
+
+    expect(result.rows[1]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.03206006,
+      costCurrency: "EUR",
+      purchasedAt: "2026-07-08",
+    });
+
+    expect(result.rows[2]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.02920671,
+      costCurrency: "USDT",
+      purchasedAt: "2024-04-16",
+      fees: 0.18,
+    });
+    expect(result.rows[2].costPerUnit).toBeCloseTo(90 / 0.02920671);
+
+    expect(
+      result.errors.some((e) => e.message.toLowerCase().includes("failed")),
+    ).toBe(true);
+  });
+
+  it("returns a header error for non Auto-Invest CSVs", () => {
+    const result = parseBinanceAutoInvestCsv(
+      "Date(UTC),Pair,Side,Price,Executed\n2025-01-01,BTCUSDT,BUY,1,1\n",
+    );
+    expect(result.rows).toEqual([]);
+    expect(
+      result.errors.some((e) => e.message.toLowerCase().includes("header")),
+    ).toBe(true);
   });
 });

@@ -47,7 +47,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
 };
 
 function normalizeHeader(value: string): string {
-  return value.trim().toLowerCase();
+  return value.replace(/^\uFEFF/, "").trim().toLowerCase();
 }
 
 function resolveColumn(
@@ -219,7 +219,7 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(trimmed, {
     header: true,
     skipEmptyLines: true,
-    transformHeader: (header) => header.trim(),
+    transformHeader: (header) => header.replace(/^\uFEFF/, "").trim(),
   });
 
   for (const err of parsed.errors) {
@@ -319,6 +319,203 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
           side: side || "BUY",
           price,
           quantity: executed.amount,
+          fee: fees,
+        }),
+      });
+    } catch (e) {
+      errors.push({
+        line,
+        message: e instanceof Error ? e.message : "Invalid row",
+      });
+    }
+  });
+
+  return { rows, errors };
+}
+
+const AUTO_INVEST_HEADERS: Record<string, string[]> = {
+  date: ["time", "date", "date(utc)"],
+  coin: ["holding coin", "coin", "crypto"],
+  amount: ["amount per period", "amount", "investment amount"],
+  units: ["units", "quantity", "executed"],
+  fee: ["trading fee", "fee"],
+  status: ["status"],
+};
+
+function resolveAutoInvestColumn(
+  headers: string[],
+  canonical: keyof typeof AUTO_INVEST_HEADERS,
+): string | undefined {
+  const aliases = AUTO_INVEST_HEADERS[canonical];
+  for (const header of headers) {
+    if (aliases.includes(normalizeHeader(header))) {
+      return header;
+    }
+  }
+  return undefined;
+}
+
+function isBlankFee(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  const text = String(value).trim();
+  return text === "" || text === "--" || text === "-";
+}
+
+function autoInvestTradeId(parts: {
+  date: string;
+  coin: string;
+  units: number;
+  amount: number;
+  quote: string;
+  fee: number;
+}): string {
+  const material = [
+    parts.date,
+    parts.coin,
+    parts.units,
+    parts.amount,
+    parts.quote,
+    parts.fee,
+  ].join("|");
+  const hash = createHash("sha1").update(material).digest("hex").slice(0, 16);
+  return `binance-auto:${hash}`;
+}
+
+/**
+ * Binance Orders → Earn History → Auto-Invest export.
+ * Success rows become crypto lots; cost/unit = Amount Per Period ÷ Units.
+ */
+export function parseBinanceAutoInvestCsv(csvText: string): ParseResult {
+  const rows: BinanceTradeRow[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+
+  const trimmed = csvText.trim();
+  if (trimmed === "") {
+    return {
+      rows: [],
+      errors: [{ line: 1, message: "Empty CSV" }],
+    };
+  }
+
+  const parsed = Papa.parse<Record<string, string>>(trimmed, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (header) => header.replace(/^\uFEFF/, "").trim(),
+  });
+
+  for (const err of parsed.errors) {
+    errors.push({
+      line: (err.row ?? 0) + 1,
+      message: err.message,
+    });
+  }
+
+  const fields = parsed.meta.fields ?? [];
+  const dateCol = resolveAutoInvestColumn(fields, "date");
+  const coinCol = resolveAutoInvestColumn(fields, "coin");
+  const amountCol = resolveAutoInvestColumn(fields, "amount");
+  const unitsCol = resolveAutoInvestColumn(fields, "units");
+  const feeCol = resolveAutoInvestColumn(fields, "fee");
+  const statusCol = resolveAutoInvestColumn(fields, "status");
+
+  // Require Auto-Invest-specific columns so Spot Trade History is rejected.
+  const hasHoldingCoin = fields.some(
+    (f) => normalizeHeader(f) === "holding coin",
+  );
+  const hasAmountPerPeriod = fields.some(
+    (f) => normalizeHeader(f) === "amount per period",
+  );
+
+  if (
+    !dateCol ||
+    !coinCol ||
+    !amountCol ||
+    !unitsCol ||
+    !hasHoldingCoin ||
+    !hasAmountPerPeriod
+  ) {
+    return {
+      rows: [],
+      errors: [
+        ...errors,
+        {
+          line: 1,
+          message:
+            "Missing required Binance Auto-Invest headers (Time, Holding Coin, Amount Per Period, Units)",
+        },
+      ],
+    };
+  }
+
+  parsed.data.forEach((record, index) => {
+    const line = index + 2;
+    const status = statusCol
+      ? String(record[statusCol] ?? "").trim().toLowerCase()
+      : "success";
+
+    if (status && status !== "success") {
+      errors.push({
+        line,
+        message: `Skipped ${status || "non-success"} Auto-Invest row`,
+      });
+      return;
+    }
+
+    try {
+      const coinRaw = String(record[coinCol] ?? "").trim().toUpperCase();
+      if (coinRaw === "") {
+        throw new Error("Missing holding coin");
+      }
+
+      const units = parseAmountWithAsset(record[unitsCol], "units");
+      if (units.amount <= 0) {
+        errors.push({ line, message: "Skipped zero-unit Auto-Invest row" });
+        return;
+      }
+      if (units.asset && units.asset !== coinRaw) {
+        throw new Error(
+          `Units asset ${units.asset} does not match holding coin ${coinRaw}`,
+        );
+      }
+
+      const spent = parseAmountWithAsset(record[amountCol], "amount");
+      if (spent.amount <= 0) {
+        throw new Error("Invalid amount per period");
+      }
+      const quote = spent.asset;
+      if (!quote) {
+        throw new Error("Missing quote currency on amount per period");
+      }
+
+      const costPerUnit = spent.amount / units.amount;
+      let fees = 0;
+      if (feeCol && !isBlankFee(record[feeCol])) {
+        const feeParsed = parseAmountWithAsset(record[feeCol], "fee");
+        const feeAsset = feeParsed.asset ?? quote;
+        const abs = Math.abs(feeParsed.amount);
+        if (feeAsset === quote) {
+          fees = abs;
+        } else if (feeAsset === coinRaw) {
+          fees = abs * costPerUnit;
+        }
+      }
+
+      const purchasedAt = parsePurchasedAt(record[dateCol]);
+      const dateRaw = String(record[dateCol] ?? "").trim();
+
+      rows.push({
+        symbol: coinRaw,
+        quantity: units.amount,
+        costPerUnit,
+        costCurrency: quote,
+        purchasedAt,
+        fees,
+        externalTradeId: autoInvestTradeId({
+          date: dateRaw,
+          coin: coinRaw,
+          units: units.amount,
+          amount: spent.amount,
+          quote,
           fee: fees,
         }),
       });

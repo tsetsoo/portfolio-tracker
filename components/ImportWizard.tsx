@@ -10,7 +10,10 @@ import {
   previewCryptoComCsv,
   previewIbkrCsv,
 } from "@/app/actions/import";
-import type { BinanceImportPreview } from "@/lib/binance/commit";
+import type {
+  BinanceImportFormat,
+  BinanceImportPreview,
+} from "@/lib/binance/commit";
 import type { CryptoComImportPreview } from "@/lib/cryptocom/commit";
 import type { IbkrImportPreview } from "@/lib/ibkr/commit";
 
@@ -23,36 +26,57 @@ type Preview =
   | BinanceImportPreview
   | CryptoComImportPreview;
 
-const BROKER_COPY: Record<
-  Broker,
-  { label: string; title: string; hint: string; assetLabel: string }
+const BROKER_LABELS: Record<Broker, string> = {
+  ibkr: "Interactive Brokers",
+  binance: "Binance",
+  cryptocom: "Crypto.com",
+};
+
+const BINANCE_FORMAT_COPY: Record<
+  BinanceImportFormat,
+  { title: string; hint: string }
 > = {
-  ibkr: {
-    label: "Interactive Brokers",
-    title: "Select an IBKR trades CSV",
-    hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Buys become equity lots; sells are skipped.",
-    assetLabel: "Symbol",
+  spot: {
+    title: "Select a Binance Spot Trade History CSV",
+    hint: "Orders → Spot → Trade History → Export. Only BUY fills become crypto lots.",
   },
-  binance: {
-    label: "Binance",
-    title: "Select a Binance spot trades CSV",
-    hint: "Orders → Spot → Trade History → Export. Only BUY fills are imported as crypto lots (USDT treated as USD for FX).",
-    assetLabel: "Asset",
-  },
-  cryptocom: {
-    label: "Crypto.com",
-    title: "Select a Crypto.com CSV",
-    hint: "App: Accounts → History → Export, or Exchange trade history. Buys and crypto_exchange receives become crypto lots; sells/rewards are skipped.",
-    assetLabel: "Asset",
+  "auto-invest": {
+    title: "Select a Binance Auto-Invest History CSV",
+    hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units).",
   },
 };
 
-async function previewForBroker(broker: Broker, text: string): Promise<Preview> {
+function brokerCopy(
+  broker: Broker,
+  binanceFormat: BinanceImportFormat,
+): { title: string; hint: string; assetLabel: string } {
+  if (broker === "ibkr") {
+    return {
+      title: "Select an IBKR trades CSV",
+      hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Buys become equity lots; sells are skipped.",
+      assetLabel: "Symbol",
+    };
+  }
+  if (broker === "binance") {
+    return { ...BINANCE_FORMAT_COPY[binanceFormat], assetLabel: "Asset" };
+  }
+  return {
+    title: "Select a Crypto.com CSV",
+    hint: "App: Accounts → History → Export, or Exchange trade history. Buys and crypto_exchange receives become crypto lots; sells/rewards are skipped.",
+    assetLabel: "Asset",
+  };
+}
+
+async function previewForBroker(
+  broker: Broker,
+  text: string,
+  binanceFormat: BinanceImportFormat,
+): Promise<Preview> {
   switch (broker) {
     case "ibkr":
       return previewIbkrCsv(text);
     case "binance":
-      return previewBinanceCsv(text);
+      return previewBinanceCsv(text, binanceFormat);
     case "cryptocom":
       return previewCryptoComCsv(text);
   }
@@ -75,20 +99,32 @@ async function commitForBroker(
 export function ImportWizard() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [broker, setBroker] = useState<Broker>("ibkr");
+  const [binanceFormat, setBinanceFormat] =
+    useState<BinanceImportFormat>("spot");
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
 
-  const copy = BROKER_COPY[broker];
+  const copy = brokerCopy(broker, binanceFormat);
 
-  function selectBroker(next: Broker) {
-    if (next === broker) return;
-    setBroker(next);
+  function resetFile() {
     setPreview(null);
     setMessage("");
     setFileName("");
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function selectBroker(next: Broker) {
+    if (next === broker) return;
+    setBroker(next);
+    resetFile();
+  }
+
+  function selectBinanceFormat(next: BinanceImportFormat) {
+    if (next === binanceFormat) return;
+    setBinanceFormat(next);
+    resetFile();
   }
 
   function chooseFile(file: File | undefined) {
@@ -99,7 +135,9 @@ export function ImportWizard() {
 
     startTransition(async () => {
       try {
-        setPreview(await previewForBroker(broker, await file.text()));
+        setPreview(
+          await previewForBroker(broker, await file.text(), binanceFormat),
+        );
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Could not preview this CSV.",
@@ -141,7 +179,7 @@ export function ImportWizard() {
           </div>
         </div>
         <div className={styles.brokerTabs} role="tablist" aria-label="Broker">
-          {(Object.keys(BROKER_COPY) as Broker[]).map((key) => (
+          {(Object.keys(BROKER_LABELS) as Broker[]).map((key) => (
             <button
               key={key}
               type="button"
@@ -152,10 +190,44 @@ export function ImportWizard() {
               }
               onClick={() => selectBroker(key)}
             >
-              {BROKER_COPY[key].label}
+              {BROKER_LABELS[key]}
             </button>
           ))}
         </div>
+        {broker === "binance" && (
+          <div
+            className={styles.formatTabs}
+            role="tablist"
+            aria-label="Binance export type"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={binanceFormat === "spot"}
+              className={
+                binanceFormat === "spot"
+                  ? styles.formatTabActive
+                  : styles.formatTab
+              }
+              onClick={() => selectBinanceFormat("spot")}
+            >
+              Spot Trade History
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={binanceFormat === "auto-invest"}
+              className={
+                binanceFormat === "auto-invest"
+                  ? styles.formatTabActive
+                  : styles.formatTab
+              }
+              onClick={() => selectBinanceFormat("auto-invest")}
+            >
+              Auto-Invest History
+            </button>
+          </div>
+        )}
       </section>
 
       <section className={styles.step}>

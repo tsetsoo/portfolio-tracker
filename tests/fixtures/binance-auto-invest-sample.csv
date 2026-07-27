@@ -1,0 +1,6 @@
+Time,Holding Coin,Amount Per Period,Trading Fee,Units,From,Status
+2026-07-08 01:06:16,BTC,50.00000000 EUR,--,0.00089732 BTC,Spot Wallet + Flexible Savings,Success
+2026-07-08 01:06:16,ETH,50.00000000 EUR,--,0.03206006 ETH,Spot Wallet + Flexible Savings,Success
+2026-07-07 01:58:15,ETH,50.00000000 EUR,--,0.00000000 ETH,Spot Wallet + Flexible Savings,Failed
+2024-04-16 23:00:00,ETH,90.00000000 USDT,0.18000000 USDT,0.02920671 ETH,Spot Wallet,Success
+2024-04-15 23:00:00,BTC,90.00000000 USDT,--,0.00150000 BTC,Spot Wallet,Success

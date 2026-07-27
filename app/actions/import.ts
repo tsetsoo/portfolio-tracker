@@ -35,8 +35,11 @@ export async function commitIbkrRows(rows: IbkrTradeRow[]) {
   return result;
 }
 
-export async function previewBinanceCsv(csvText: string) {
-  return previewBinanceImport(getDb(), csvText);
+export async function previewBinanceCsv(
+  csvText: string,
+  format: "spot" | "auto-invest" = "spot",
+) {
+  return previewBinanceImport(getDb(), csvText, format);
 }
 
 export async function commitBinanceRows(rows: BinanceTradeRow[]) {

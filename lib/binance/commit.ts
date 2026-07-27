@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import {
+  parseBinanceAutoInvestCsv,
   parseBinanceTradesCsv,
   type BinanceTradeRow,
   type ParseResult,
@@ -13,6 +14,8 @@ export type BinanceImportPreview = {
   errors: ParseResult["errors"];
 };
 
+export type BinanceImportFormat = "spot" | "auto-invest";
+
 function hasTradeId(db: Database.Database, externalTradeId: string): boolean {
   return Boolean(
     db
@@ -21,11 +24,10 @@ function hasTradeId(db: Database.Database, externalTradeId: string): boolean {
   );
 }
 
-export function previewBinanceImport(
+function previewFromParsed(
   db: Database.Database,
-  csvText: string,
+  parsed: ParseResult,
 ): BinanceImportPreview {
-  const parsed = parseBinanceTradesCsv(csvText);
   const toInsert: BinanceTradeRow[] = [];
   const duplicates: BinanceTradeRow[] = [];
   const seenTradeIds = new Set<string>();
@@ -45,6 +47,18 @@ export function previewBinanceImport(
   }
 
   return { toInsert, duplicates, errors: parsed.errors };
+}
+
+export function previewBinanceImport(
+  db: Database.Database,
+  csvText: string,
+  format: BinanceImportFormat = "spot",
+): BinanceImportPreview {
+  const parsed =
+    format === "auto-invest"
+      ? parseBinanceAutoInvestCsv(csvText)
+      : parseBinanceTradesCsv(csvText);
+  return previewFromParsed(db, parsed);
 }
 
 export function commitBinanceImport(
