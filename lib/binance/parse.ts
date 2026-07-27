@@ -34,6 +34,19 @@ const QUOTE_ASSETS = [
   "BNB",
 ].sort((a, b) => b.length - a.length);
 
+const FIAT_BASES = new Set([
+  "EUR",
+  "USD",
+  "GBP",
+  "AUD",
+  "CAD",
+  "CHF",
+  "SGD",
+  "JPY",
+  "TRY",
+  "BRL",
+]);
+
 const HEADER_ALIASES: Record<string, string[]> = {
   date: ["date(utc)", "date", "utc_time", "time"],
   pair: ["pair", "symbol", "market"],
@@ -204,9 +217,116 @@ function tradeIdFor(
   return `binance:${hash}`;
 }
 
-export function parseBinanceTradesCsv(csvText: string): ParseResult {
+const QTY_EPS = 1e-12;
+
+function cleanQty(quantity: number): number {
+  const rounded = Math.round(quantity * 1e12) / 1e12;
+  return Math.abs(rounded) < QTY_EPS ? 0 : rounded;
+}
+
+type SpotFill = {
+  line: number;
+  order: number;
+  sortKey: string;
+  side: "BUY" | "SELL";
+  row: BinanceTradeRow;
+};
+
+/** Lexicographic datetime key; Binance exports are often newest-first. */
+function sortKeyFromDate(value: unknown): string {
+  const text = String(value ?? "").trim();
+  return text.replace(" ", "T");
+}
+
+function isBuySide(side: string): boolean {
+  return (
+    side === "BUY" ||
+    side === "BUY_MARKET" ||
+    side === "BUY_LIMIT" ||
+    side.includes("BUY")
+  );
+}
+
+function isSellSide(side: string): boolean {
+  return (
+    side === "SELL" ||
+    side === "SELL_MARKET" ||
+    side === "SELL_LIMIT" ||
+    (side.includes("SELL") && !side.includes("BUY"))
+  );
+}
+
+/**
+ * Apply sells FIFO against buys (chronological). Fully sold symbols are dropped;
+ * partial sells reduce remaining lot quantity and prorate fees.
+ */
+export function netSpotFillsFifo(fills: SpotFill[]): ParseResult {
+  const errors: ParseResult["errors"] = [];
+  const queues = new Map<string, BinanceTradeRow[]>();
+  const touched = new Set<string>();
+
+  const chronological = [...fills].sort((a, b) => {
+    const byTime = a.sortKey.localeCompare(b.sortKey);
+    if (byTime !== 0) return byTime;
+    return a.order - b.order;
+  });
+
+  for (const fill of chronological) {
+    const symbol = fill.row.symbol;
+    touched.add(symbol);
+    const queue = queues.get(symbol) ?? [];
+    queues.set(symbol, queue);
+
+    if (fill.side === "BUY") {
+      queue.push({ ...fill.row });
+      continue;
+    }
+
+    let remaining = fill.row.quantity;
+    while (remaining > QTY_EPS && queue.length > 0) {
+      const lot = queue[0]!;
+      const take = Math.min(lot.quantity, remaining);
+      if (take + QTY_EPS >= lot.quantity) {
+        remaining = cleanQty(remaining - lot.quantity);
+        queue.shift();
+      } else {
+        const leftRatio = (lot.quantity - take) / lot.quantity;
+        lot.quantity = cleanQty(lot.quantity - take);
+        lot.fees *= leftRatio;
+        remaining = cleanQty(remaining - take);
+      }
+    }
+
+    if (remaining > QTY_EPS) {
+      errors.push({
+        line: fill.line,
+        message: `Sell exceeded open quantity for ${symbol} (leftover ${remaining})`,
+      });
+    } else {
+      errors.push({
+        line: fill.line,
+        message: `Applied sell: ${fill.row.quantity} ${symbol}`,
+      });
+    }
+  }
+
   const rows: BinanceTradeRow[] = [];
+  for (const symbol of [...touched].sort()) {
+    const queue = queues.get(symbol) ?? [];
+    const open = queue.filter((lot) => lot.quantity > QTY_EPS);
+    if (open.length === 0) {
+      errors.push({ line: 0, message: `Closed position: ${symbol}` });
+      continue;
+    }
+    rows.push(...open);
+  }
+
+  return { rows, errors };
+}
+
+export function parseBinanceTradesCsv(csvText: string): ParseResult {
   const errors: Array<{ line: number; message: string }> = [];
+  const fills: SpotFill[] = [];
 
   const trimmed = csvText.trim();
   if (trimmed === "") {
@@ -268,25 +388,28 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
     const side = String(record[sideCol] ?? "")
       .trim()
       .toUpperCase();
-    if (side === "SELL") {
-      errors.push({ line, message: "Skipped sell" });
-      return;
-    }
-    if (side !== "BUY" && side !== "BUY_MARKET" && side !== "BUY_LIMIT") {
-      // Some exports use Type for LIMIT/MARKET — Side should still be BUY/SELL
-      if (side !== "" && !side.includes("BUY")) {
+
+    if (!isBuySide(side) && !isSellSide(side)) {
+      if (side !== "") {
         errors.push({ line, message: `Skipped non-buy side: ${side}` });
-        return;
       }
+      return;
     }
 
     try {
       const pairRaw = String(record[pairCol] ?? "").trim();
       const { base, quote } = splitPair(pairRaw);
+      if (FIAT_BASES.has(base)) {
+        errors.push({
+          line,
+          message: `Skipped fiat pair base: ${base}`,
+        });
+        return;
+      }
       const price = parseNumber(record[priceCol], "price");
       const executed = parseAmountWithAsset(record[quantityCol], "executed");
       if (executed.amount <= 0) {
-        errors.push({ line, message: "Skipped sell (non-positive quantity)" });
+        errors.push({ line, message: "Skipped non-positive quantity" });
         return;
       }
       if (executed.asset && executed.asset !== base) {
@@ -296,9 +419,16 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
       }
 
       const fees = feeCol
-        ? resolveFees(record[feeCol], feeCoinCol ? record[feeCoinCol] : null, price, base, quote)
+        ? resolveFees(
+            record[feeCol],
+            feeCoinCol ? record[feeCoinCol] : null,
+            price,
+            base,
+            quote,
+          )
         : 0;
 
+      const dateRaw = String(record[dateCol] ?? "").trim();
       const purchasedAt = parsePurchasedAt(record[dateCol]);
       const tradeIdRaw = tradeIdCol ? record[tradeIdCol] : undefined;
       const explicitId =
@@ -306,21 +436,28 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
           ? String(tradeIdRaw).trim()
           : null;
 
-      rows.push({
-        symbol: base,
-        quantity: executed.amount,
-        costPerUnit: price,
-        costCurrency: quote,
-        purchasedAt,
-        fees,
-        externalTradeId: tradeIdFor(explicitId, {
-          date: String(record[dateCol] ?? "").trim(),
-          pair: pairRaw.toUpperCase(),
-          side: side || "BUY",
-          price,
+      const fillSide: "BUY" | "SELL" = isSellSide(side) ? "SELL" : "BUY";
+      fills.push({
+        line,
+        order: index,
+        sortKey: sortKeyFromDate(dateRaw),
+        side: fillSide,
+        row: {
+          symbol: base,
           quantity: executed.amount,
-          fee: fees,
-        }),
+          costPerUnit: price,
+          costCurrency: quote,
+          purchasedAt,
+          fees,
+          externalTradeId: tradeIdFor(explicitId, {
+            date: dateRaw,
+            pair: pairRaw.toUpperCase(),
+            side: fillSide,
+            price,
+            quantity: executed.amount,
+            fee: fees,
+          }),
+        },
       });
     } catch (e) {
       errors.push({
@@ -330,7 +467,11 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
     }
   });
 
-  return { rows, errors };
+  const netted = netSpotFillsFifo(fills);
+  return {
+    rows: netted.rows,
+    errors: [...errors, ...netted.errors],
+  };
 }
 
 const AUTO_INVEST_HEADERS: Record<string, string[]> = {

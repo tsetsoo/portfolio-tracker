@@ -12,21 +12,21 @@ const fixturePath = path.join(
 );
 
 describe("parseBinanceTradesCsv", () => {
-  it("parses buy rows from the Binance spot trades fixture", () => {
+  it("parses buy rows and nets sells FIFO from the spot fixture", () => {
     const csv = readFileSync(fixturePath, "utf8");
     const result = parseBinanceTradesCsv(csv);
 
     expect(result.rows).toHaveLength(2);
+    // BUY 0.01 then SELL 0.005 → 0.005 remaining; fees prorated
     expect(result.rows[0]).toMatchObject({
       symbol: "BTC",
-      quantity: 0.01,
+      quantity: 0.005,
       costPerUnit: 85000,
       costCurrency: "USDT",
       purchasedAt: "2025-03-15",
       externalTradeId: expect.stringMatching(/^binance:/),
     });
-    // Fee in BTC → converted to USDT via price
-    expect(result.rows[0].fees).toBeCloseTo(0.00001 * 85000);
+    expect(result.rows[0].fees).toBeCloseTo(0.00001 * 85000 * 0.5);
 
     expect(result.rows[1]).toMatchObject({
       symbol: "ETH",
@@ -38,13 +38,13 @@ describe("parseBinanceTradesCsv", () => {
     });
   });
 
-  it("skips sells and records bad rows in errors", () => {
+  it("records applied sells and bad rows in errors", () => {
     const csv = readFileSync(fixturePath, "utf8");
     const result = parseBinanceTradesCsv(csv);
 
     expect(
       result.errors.some((e) =>
-        e.message.toLowerCase().includes("skipped sell"),
+        /applied sell|sold/i.test(e.message),
       ),
     ).toBe(true);
     expect(
@@ -53,6 +53,61 @@ describe("parseBinanceTradesCsv", () => {
           e.message.toLowerCase().includes("price") ||
           e.message.toLowerCase().includes("invalid"),
       ),
+    ).toBe(true);
+  });
+
+  it("drops fully sold symbols and keeps remaining open lots", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2025-01-01 10:00:00,BTCUSDT,BUY,100,1,100,0,USDT\n" +
+      "2025-01-02 10:00:00,ETHUSDT,BUY,200,2,400,0,USDT\n" +
+      "2025-01-03 10:00:00,BTCUSDT,SELL,110,1,110,0,USDT\n" +
+      "2025-01-04 10:00:00,ETHUSDT,SELL,210,0.5,105,0,USDT\n";
+
+    const result = parseBinanceTradesCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "ETH",
+      quantity: 1.5,
+      costPerUnit: 200,
+      purchasedAt: "2025-01-02",
+    });
+    expect(
+      result.errors.some((e) => /closed position:\s*btc/i.test(e.message)),
+    ).toBe(true);
+  });
+
+  it("applies sells FIFO across multiple lots in chronological order", () => {
+    // Newest-first CSV (Binance export style) — must sort before FIFO
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2025-01-03 12:00:00,BTCUSDT,SELL,120,0.015,1.8,0,USDT\n" +
+      "2025-01-02 12:00:00,BTCUSDT,BUY,110,0.02,2.2,0.2,USDT\n" +
+      "2025-01-01 12:00:00,BTCUSDT,BUY,100,0.01,1,0.1,USDT\n";
+
+    const result = parseBinanceTradesCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "BTC",
+      quantity: 0.015,
+      costPerUnit: 110,
+      purchasedAt: "2025-01-02",
+    });
+    // First lot fully consumed; second lot sold 0.005 of 0.02 → fees 0.2 * 0.015/0.02
+    expect(result.rows[0].fees).toBeCloseTo(0.15);
+  });
+
+  it("skips fiat-base pairs like EURUSDT", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2025-01-01 10:00:00,EURUSDT,SELL,1.08,1000EUR,1080,1,USDT\n" +
+      "2025-01-02 10:00:00,BTCUSDT,BUY,100,0.01,1,0,USDT\n";
+
+    const result = parseBinanceTradesCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.symbol).toBe("BTC");
+    expect(
+      result.errors.some((e) => /fiat/i.test(e.message)),
     ).toBe(true);
   });
 

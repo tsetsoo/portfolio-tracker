@@ -38,7 +38,7 @@ const BINANCE_FORMAT_COPY: Record<
 > = {
   spot: {
     title: "Select a Binance Spot Trade History CSV",
-    hint: "Orders → Spot → Trade History → Export. Only BUY fills become crypto lots.",
+    hint: "Orders → Spot → Trade History → Export. Buys and sells are netted FIFO; fully sold coins are skipped.",
   },
   "auto-invest": {
     title: "Select a Binance Auto-Invest History CSV",
