@@ -15,12 +15,20 @@ interface HistoryChartProps {
 }
 
 function compactMoney(value: number, currency: string): string {
-  return new Intl.NumberFormat("en", {
-    style: "currency",
-    currency,
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
+  const code = currency.trim().toUpperCase() || "USD";
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: code,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(value);
+  } catch {
+    return `${new Intl.NumberFormat("en", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(value)} ${code}`;
+  }
 }
 
 export function HistoryChart({ snapshots, currency }: HistoryChartProps) {
