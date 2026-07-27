@@ -73,12 +73,19 @@ export function createQuoteService(
     async getQuote(
       rawSymbol: string,
       assetClass: AssetClass,
-      opts?: { force?: boolean },
+      opts?: { force?: boolean; preferredCurrency?: string },
     ): Promise<Quote> {
       const symbol = rawSymbol.toUpperCase();
+      const preferredCurrency = opts?.preferredCurrency?.trim().toUpperCase();
       const cached = readQuote(symbol, assetClass);
 
-      if (cached && !opts?.force && isFresh(cached.fetched_at)) {
+      if (
+        cached &&
+        !opts?.force &&
+        isFresh(cached.fetched_at) &&
+        (!preferredCurrency ||
+          cached.currency.toUpperCase() === preferredCurrency)
+      ) {
         return {
           price: cached.price,
           currency: cached.currency,
@@ -91,7 +98,7 @@ export function createQuoteService(
       try {
         quote =
           assetClass === "equity"
-            ? await fetchYahooQuote(symbol, fetchImpl)
+            ? await fetchYahooQuote(symbol, fetchImpl, { preferredCurrency })
             : await fetchCoinGeckoQuote(
                 symbol,
                 (
@@ -102,7 +109,11 @@ export function createQuoteService(
                 fetchImpl,
               );
       } catch (error) {
-        if (cached) {
+        if (
+          cached &&
+          (!preferredCurrency ||
+            cached.currency.toUpperCase() === preferredCurrency)
+        ) {
           return {
             price: cached.price,
             currency: cached.currency,
@@ -169,7 +180,7 @@ export function createQuoteService(
 export function getQuote(
   symbol: string,
   assetClass: AssetClass,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; preferredCurrency?: string },
 ): Promise<Quote> {
   return createQuoteService(getDb(), globalThis.fetch).getQuote(
     symbol,

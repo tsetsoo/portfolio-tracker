@@ -78,7 +78,10 @@ describe("valuePortfolio", () => {
       costBasisBase: null,
       unrealizedPlBase: null,
     });
-    expect(getQuote).toHaveBeenCalledWith("ACME", "equity", { force: true });
+    expect(getQuote).toHaveBeenCalledWith("ACME", "equity", {
+      force: true,
+      preferredCurrency: "USD",
+    });
   });
 
   it("keeps valuing other holdings when a quote fetch rejects", async () => {

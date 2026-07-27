@@ -66,6 +66,9 @@ describe("quote service cache", () => {
     });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=1d",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "User-Agent": "Mozilla/5.0" }),
+      }),
     );
     expect(
       db
@@ -240,5 +243,49 @@ describe("quote service cache", () => {
     });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("from=USD");
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("to=EUR");
+  });
+
+  it("ignores a cached USD quote when EUR is preferred and refetches", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("GRID", "equity", 177.4, "USD", "2026-07-25T11:55:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      const href = String(url);
+      if (href.includes("GRID.DE")) {
+        return new Response(
+          JSON.stringify({
+            chart: {
+              result: [
+                { meta: { regularMarketPrice: 54.47, currency: "EUR" } },
+              ],
+              error: null,
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("missing", { status: 404 });
+    });
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getQuote("GRID", "equity", { preferredCurrency: "EUR" }),
+    ).resolves.toEqual({
+      price: 54.47,
+      currency: "EUR",
+      stale: false,
+      fetchedAt: "2026-07-25T12:00:00.000Z",
+    });
+    expect(
+      db
+        .prepare(
+          `SELECT price, currency FROM price_cache
+           WHERE symbol = 'GRID' AND asset_class = 'equity'`,
+        )
+        .get(),
+    ).toEqual({ price: 54.47, currency: "EUR" });
   });
 });

@@ -16,7 +16,7 @@ export interface QuoteService {
   getQuote(
     symbol: string,
     assetClass: AssetClass,
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; preferredCurrency?: string },
   ): Promise<Quote>;
   getFxRate(
     from: string,

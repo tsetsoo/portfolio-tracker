@@ -124,6 +124,7 @@ export async function valuePortfolio(
       try {
         const quote = await getQuote(holding.symbol, holding.type, {
           force: opts.forceRefresh,
+          preferredCurrency: holding.quoteCurrency ?? undefined,
         });
         quotes.set(holding.id, quote);
         pricesOutdated ||= quote.stale;
