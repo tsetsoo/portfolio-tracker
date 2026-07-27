@@ -9,7 +9,10 @@ KEEP_RELEASES="${KEEP_RELEASES:-3}"
 
 mkdir -p "$PORTFOLIO_ROOT/releases" "$PORTFOLIO_ROOT/data"
 
-remote_sha="$(curl -fsSL "$PORTFOLIO_RELEASE_BASE/SHA" | tr -d '[:space:]')"
+# Bust GitHub release-asset CDN cache; otherwise SHA can lag the new tarball.
+CACHE_BUST="$(date +%s)"
+
+remote_sha="$(curl -fsSL "$PORTFOLIO_RELEASE_BASE/SHA?ts=$CACHE_BUST" | tr -d '[:space:]')"
 if [[ -z "$remote_sha" || ! "$remote_sha" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "invalid remote SHA: '$remote_sha'" >&2
   exit 1
@@ -44,7 +47,7 @@ flip_current() {
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-curl -fsSL "$PORTFOLIO_RELEASE_BASE/portfolio-pi.tar.gz" -o "$workdir/portfolio-pi.tar.gz"
+curl -fsSL "$PORTFOLIO_RELEASE_BASE/portfolio-pi.tar.gz?ts=$CACHE_BUST" -o "$workdir/portfolio-pi.tar.gz"
 dest="$PORTFOLIO_ROOT/releases/$remote_sha"
 rm -rf "$dest"
 mkdir -p "$dest"
