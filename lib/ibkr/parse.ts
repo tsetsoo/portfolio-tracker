@@ -19,10 +19,11 @@ const HEADER_ALIASES: Record<string, string[]> = {
   symbol: ["symbol"],
   quantity: ["quantity"],
   tradePrice: ["tradeprice", "t. price", "t price", "price"],
-  currency: ["currencyprimary", "currency"],
+  currency: ["currencyprimary", "currency", "price currency"],
   dateTime: ["datetime", "tradedate", "date/time", "date"],
   commission: ["ibcommission", "comm/fee", "commission", "fees"],
   tradeId: ["tradeid", "transactionid", "execid"],
+  transactionType: ["transaction type", "transactiontype", "buy/sell", "buysell"],
 };
 
 function normalizeHeader(value: string): string {
@@ -43,14 +44,19 @@ function resolveColumn(
   return undefined;
 }
 
-function parseNumber(value: unknown, field: string): number {
+function isBlankCell(value: unknown): boolean {
   if (value === null || value === undefined) {
+    return true;
+  }
+  const text = String(value).trim();
+  return text === "" || text === "-";
+}
+
+function parseNumber(value: unknown, field: string): number {
+  if (isBlankCell(value)) {
     throw new Error(`Missing ${field}`);
   }
   const text = String(value).trim();
-  if (text === "") {
-    throw new Error(`Missing ${field}`);
-  }
   const num = Number(text.replace(/,/g, ""));
   if (!Number.isFinite(num)) {
     throw new Error(`Invalid ${field}`);
@@ -59,7 +65,7 @@ function parseNumber(value: unknown, field: string): number {
 }
 
 function parseFees(value: unknown): number {
-  if (value === null || value === undefined || String(value).trim() === "") {
+  if (isBlankCell(value)) {
     return 0;
   }
   const raw = parseNumber(value, "commission");
@@ -101,52 +107,97 @@ function parsePurchasedAt(value: unknown): string {
   throw new Error("Invalid date");
 }
 
-function lineNumberFromParse(
-  parseResult: Papa.ParseResult<Record<string, string>>,
-  rowIndex: number,
-): number {
-  const meta = parseResult.meta;
-  if (meta.fields && meta.cursor !== undefined) {
-    return rowIndex + 2;
+type NormalizedTable = {
+  fields: string[];
+  records: Array<{ record: Record<string, string>; line: number }>;
+};
+
+/**
+ * IBKR Client Portal "Transaction History" / Activity Statement CSVs are
+ * sectioned: `Section,Type,col1,col2,...` rather than a single flat header.
+ */
+function extractTransactionHistoryTable(csvText: string): NormalizedTable | null {
+  const parsed = Papa.parse<string[]>(csvText, {
+    header: false,
+    skipEmptyLines: true,
+  });
+
+  let headers: string[] | null = null;
+  const records: NormalizedTable["records"] = [];
+
+  parsed.data.forEach((raw, index) => {
+    const line = index + 1;
+    if (raw.length < 2) {
+      return;
+    }
+    const section = String(raw[0] ?? "").trim();
+    const rowType = String(raw[1] ?? "").trim().toLowerCase();
+    if (section !== "Transaction History") {
+      return;
+    }
+    if (rowType === "header") {
+      headers = raw.slice(2).map((h) => String(h ?? "").trim());
+      return;
+    }
+    if (rowType !== "data" || !headers) {
+      return;
+    }
+    const values = raw.slice(2);
+    const record: Record<string, string> = {};
+    headers.forEach((header, i) => {
+      record[header] = values[i] !== undefined ? String(values[i]) : "";
+    });
+    records.push({ record, line });
+  });
+
+  if (!headers || headers.length === 0) {
+    return null;
   }
-  return rowIndex + 2;
+  return { fields: headers, records };
 }
 
-export function parseIbkrTradesCsv(csvText: string): ParseResult {
-  const rows: IbkrTradeRow[] = [];
-  const errors: Array<{ line: number; message: string }> = [];
-
-  const trimmed = csvText.trim();
-  if (trimmed === "") {
-    return {
-      rows: [],
-      errors: [{ line: 1, message: "Empty CSV" }],
-    };
-  }
-
-  const parsed = Papa.parse<Record<string, string>>(trimmed, {
+function extractFlatTable(csvText: string): NormalizedTable {
+  const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,
     transformHeader: (header) => header.trim(),
   });
 
-  if (parsed.errors.length > 0) {
-    for (const err of parsed.errors) {
-      errors.push({
-        line: (err.row ?? 0) + 1,
-        message: err.message,
-      });
-    }
-  }
+  const fields = (parsed.meta.fields ?? []).map((f) => f.trim());
+  const records = parsed.data.map((record, index) => ({
+    record,
+    line: index + 2,
+  }));
 
-  const fields = parsed.meta.fields ?? [];
-  const symbolCol = resolveColumn(fields, "symbol");
-  const quantityCol = resolveColumn(fields, "quantity");
-  const priceCol = resolveColumn(fields, "tradePrice");
-  const currencyCol = resolveColumn(fields, "currency");
-  const dateCol = resolveColumn(fields, "dateTime");
-  const commissionCol = resolveColumn(fields, "commission");
-  const tradeIdCol = resolveColumn(fields, "tradeId");
+  // Surface Papa parse issues as empty fields path; callers add header errors.
+  void parsed.errors;
+
+  return { fields, records };
+}
+
+function looksLikeSectionedStatement(csvText: string): boolean {
+  const head = csvText.slice(0, 2000);
+  return (
+    /Transaction History,\s*Header/i.test(head) ||
+    /^Statement,\s*(Header|Data)/im.test(head)
+  );
+}
+
+function parseTradeRecords(
+  table: NormalizedTable,
+  options: { requireTransactionTypeFilter: boolean },
+): ParseResult {
+  const rows: IbkrTradeRow[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+
+  const symbolCol = resolveColumn(table.fields, "symbol");
+  const quantityCol = resolveColumn(table.fields, "quantity");
+  const priceCol = resolveColumn(table.fields, "tradePrice");
+  const currencyCol = resolveColumn(table.fields, "currency");
+  const dateCol = resolveColumn(table.fields, "dateTime");
+  const commissionCol = resolveColumn(table.fields, "commission");
+  const tradeIdCol = resolveColumn(table.fields, "tradeId");
+  const typeCol = resolveColumn(table.fields, "transactionType");
 
   if (
     !symbolCol ||
@@ -159,7 +210,6 @@ export function parseIbkrTradesCsv(csvText: string): ParseResult {
     return {
       rows: [],
       errors: [
-        ...errors,
         {
           line: 1,
           message:
@@ -169,8 +219,23 @@ export function parseIbkrTradesCsv(csvText: string): ParseResult {
     };
   }
 
-  parsed.data.forEach((record, index) => {
-    const line = lineNumberFromParse(parsed, index);
+  for (const { record, line } of table.records) {
+    if (options.requireTransactionTypeFilter || typeCol) {
+      const rawType = typeCol
+        ? String(record[typeCol] ?? "").trim().toLowerCase()
+        : "";
+      if (rawType !== "" && rawType !== "buy") {
+        if (rawType === "sell") {
+          errors.push({ line, message: "Skipped sell (non-positive quantity)" });
+        }
+        // Deposits, dividends, forex, adjustments, etc. — ignore quietly.
+        continue;
+      }
+    }
+
+    if (isBlankCell(record[quantityCol]) || isBlankCell(record[symbolCol])) {
+      continue;
+    }
 
     let quantity: number;
     try {
@@ -180,23 +245,25 @@ export function parseIbkrTradesCsv(csvText: string): ParseResult {
         line,
         message: e instanceof Error ? e.message : "Invalid quantity",
       });
-      return;
+      continue;
     }
 
     if (quantity <= 0) {
       errors.push({ line, message: "Skipped sell (non-positive quantity)" });
-      return;
+      continue;
     }
 
     try {
       const symbol = String(record[symbolCol] ?? "").trim();
-      if (symbol === "") {
+      if (symbol === "" || symbol === "-") {
         throw new Error("Missing symbol");
       }
 
       const tradeIdRaw = tradeIdCol ? record[tradeIdCol] : undefined;
       const externalTradeId =
-        tradeIdRaw !== undefined && String(tradeIdRaw).trim() !== ""
+        tradeIdRaw !== undefined &&
+        !isBlankCell(tradeIdRaw) &&
+        String(tradeIdRaw).trim() !== ""
           ? String(tradeIdRaw).trim()
           : null;
 
@@ -215,7 +282,38 @@ export function parseIbkrTradesCsv(csvText: string): ParseResult {
         message: e instanceof Error ? e.message : "Invalid row",
       });
     }
-  });
+  }
 
   return { rows, errors };
+}
+
+export function parseIbkrTradesCsv(csvText: string): ParseResult {
+  const trimmed = csvText.trim();
+  if (trimmed === "") {
+    return {
+      rows: [],
+      errors: [{ line: 1, message: "Empty CSV" }],
+    };
+  }
+
+  if (looksLikeSectionedStatement(trimmed)) {
+    const history = extractTransactionHistoryTable(trimmed);
+    if (!history) {
+      return {
+        rows: [],
+        errors: [
+          {
+            line: 1,
+            message:
+              "IBKR statement CSV found, but no Transaction History section with trade headers",
+          },
+        ],
+      };
+    }
+    return parseTradeRecords(history, { requireTransactionTypeFilter: true });
+  }
+
+  return parseTradeRecords(extractFlatTable(trimmed), {
+    requireTransactionTypeFilter: false,
+  });
 }

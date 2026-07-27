@@ -1,0 +1,13 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,Title,Transaction History
+Statement,Data,Period,"July 24, 2025 - July 24, 2026"
+Summary,Header,Field Name,Field Value
+Summary,Data,Base Currency,EUR
+Transaction History,Header,Date,Account,Description,Transaction Type,Symbol,Quantity,Price,Price Currency,Gross Amount ,Commission,Net Amount
+Transaction History,Data,2026-07-16,U***81408,BNP PARIBAS EASY II NASDAQ 1,Buy,ANAU,87.0,22.365,EUR,-1945.755,-3.75,-1949.505
+Transaction History,Data,2026-07-15,U***81408,Electronic Fund Transfer,Deposit,-,-,-,-,2000.0,-,2000.0
+Transaction History,Data,2026-07-01,U***81408,VERTIV HOLDINGS CO-A,Buy,VRT,1.0,322.54,USD,-283.493,-0.8789,-284.372
+Transaction History,Data,2026-07-01,U***81408,Net Amount in Base from Forex Trade: -283 EUR.USD,Forex Trade Component,EUR.USD,-283.0,1.13682,USD,-0.227,-,-0.227
+Transaction History,Data,2026-06-26,U***81408,NVDA(US67066G1040) Cash Dividend USD 0.25 per Share (Ordinary Dividend),Dividend,NVDA,-,-,-,1.09795,-,1.09795
+Transaction History,Data,2026-05-26,U***81408,FT NSDQ CLN EDG SMRT GRID,Buy,GRID,17.0,58.39,EUR,-992.63,-,-992.63
+Transaction History,Data,2026-05-20,U***81408,SOME STOCK,Sell,AAPL,-5.0,200.0,USD,1000.0,-1.0,999.0

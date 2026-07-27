@@ -35,7 +35,8 @@ RUN npm run build \
   && cp -a .next/standalone/. /out/ \
   && mkdir -p /out/.next \
   && cp -a .next/static /out/.next/static \
-  && if [ -d public ]; then cp -a public /out/public; fi
+  && if [ -d public ]; then cp -a public /out/public; fi \
+  && chmod -R a+rX /out
 
 # Export stage for `docker buildx build --output type=local`
 FROM scratch AS export

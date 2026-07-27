@@ -86,4 +86,50 @@ describe("parseIbkrTradesCsv", () => {
       fees: 0,
     });
   });
+
+  it("parses Buy rows from an IBKR Transaction History statement CSV", () => {
+    const csv = readFileSync(
+      path.join(__dirname, "fixtures", "ibkr-transaction-history-sample.csv"),
+      "utf8",
+    );
+    const result = parseIbkrTradesCsv(csv);
+
+    expect(result.rows).toEqual([
+      {
+        symbol: "ANAU",
+        quantity: 87,
+        costPerUnit: 22.365,
+        costCurrency: "EUR",
+        purchasedAt: "2026-07-16",
+        fees: 3.75,
+        externalTradeId: null,
+      },
+      {
+        symbol: "VRT",
+        quantity: 1,
+        costPerUnit: 322.54,
+        costCurrency: "USD",
+        purchasedAt: "2026-07-01",
+        fees: 0.8789,
+        externalTradeId: null,
+      },
+      {
+        symbol: "GRID",
+        quantity: 17,
+        costPerUnit: 58.39,
+        costCurrency: "EUR",
+        purchasedAt: "2026-05-26",
+        fees: 0,
+        externalTradeId: null,
+      },
+    ]);
+    expect(
+      result.errors.some((e) => e.message.toLowerCase().includes("skipped sell")),
+    ).toBe(true);
+    expect(
+      result.errors.some((e) =>
+        /deposit|dividend|forex|adjustment/i.test(e.message),
+      ),
+    ).toBe(false);
+  });
 });

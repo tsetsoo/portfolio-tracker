@@ -30,7 +30,7 @@ const BROKER_COPY: Record<
   ibkr: {
     label: "Interactive Brokers",
     title: "Select an IBKR trades CSV",
-    hint: "Export Flex/Activity trades from Interactive Brokers. Lots are stored as equities.",
+    hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Buys become equity lots; sells are skipped.",
     assetLabel: "Symbol",
   },
   binance: {
