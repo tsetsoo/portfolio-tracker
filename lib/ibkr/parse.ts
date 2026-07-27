@@ -122,7 +122,7 @@ function extractTransactionHistoryTable(csvText: string): NormalizedTable | null
     skipEmptyLines: true,
   });
 
-  let headers: string[] | null = null;
+  let headerFields: string[] | null = null;
   const records: NormalizedTable["records"] = [];
 
   parsed.data.forEach((raw, index) => {
@@ -136,24 +136,24 @@ function extractTransactionHistoryTable(csvText: string): NormalizedTable | null
       return;
     }
     if (rowType === "header") {
-      headers = raw.slice(2).map((h) => String(h ?? "").trim());
+      headerFields = raw.slice(2).map((h) => String(h ?? "").trim());
       return;
     }
-    if (rowType !== "data" || !headers) {
+    if (rowType !== "data" || headerFields === null) {
       return;
     }
     const values = raw.slice(2);
     const record: Record<string, string> = {};
-    headers.forEach((header, i) => {
+    headerFields.forEach((header, i) => {
       record[header] = values[i] !== undefined ? String(values[i]) : "";
     });
     records.push({ record, line });
   });
 
-  if (!headers || headers.length === 0) {
+  if (headerFields === null || headerFields.length === 0) {
     return null;
   }
-  return { fields: headers, records };
+  return { fields: headerFields, records };
 }
 
 function extractFlatTable(csvText: string): NormalizedTable {
