@@ -2,15 +2,14 @@ import { createHash } from "node:crypto";
 
 import Papa from "papaparse";
 
-export type CryptoComTradeRow = {
-  symbol: string;
-  quantity: number;
-  costPerUnit: number;
-  costCurrency: string;
-  purchasedAt: string;
-  fees: number;
-  externalTradeId: string | null;
-};
+import {
+  netFillsFifo,
+  sortKeyFromDate,
+  type LotFill,
+  type LotRow,
+} from "@/lib/import/fifo-net";
+
+export type CryptoComTradeRow = LotRow;
 
 export type ParseResult = {
   rows: CryptoComTradeRow[];
@@ -28,7 +27,19 @@ const QUOTE_ASSETS = [
   "CRO",
 ].sort((a, b) => b.length - a.length);
 
-const FIAT = new Set(["EUR", "USD", "GBP", "AUD", "CAD", "CHF", "SGD", "JPY"]);
+const FIAT = new Set([
+  "EUR",
+  "USD",
+  "GBP",
+  "AUD",
+  "CAD",
+  "CHF",
+  "SGD",
+  "JPY",
+  "TRY",
+  "BRL",
+  "BGN",
+]);
 
 const APP_BUY_KINDS = new Set([
   "crypto_purchase",
@@ -90,7 +101,11 @@ function splitPair(pair: string): { base: string; quote: string } {
   throw new Error(`Unrecognized pair: ${pair}`);
 }
 
-function tradeId(prefix: string, explicit: string | null, material: string): string {
+function tradeId(
+  prefix: string,
+  explicit: string | null,
+  material: string,
+): string {
   if (explicit) {
     return explicit.startsWith("cryptocom:")
       ? explicit
@@ -102,9 +117,11 @@ function tradeId(prefix: string, explicit: string | null, material: string): str
 
 function isAppExport(headers: string[]): boolean {
   return headers.some((h) =>
-    ["transaction kind", "transactiondescription", "transaction description"].includes(
-      normalizeHeader(h),
-    ),
+    [
+      "transaction kind",
+      "transactiondescription",
+      "transaction description",
+    ].includes(normalizeHeader(h)),
   );
 }
 
@@ -112,16 +129,55 @@ function isExchangeExport(headers: string[]): boolean {
   const normalized = headers.map(normalizeHeader);
   return (
     normalized.some((h) => h === "trade price" || h === "tradeprice") &&
-    normalized.some((h) => h === "trade amount" || h === "tradeamount" || h === "side")
+    normalized.some(
+      (h) => h === "trade amount" || h === "tradeamount" || h === "side",
+    )
   );
+}
+
+function pushBuy(
+  fills: LotFill[],
+  meta: { line: number; order: number; sortKey: string },
+  row: CryptoComTradeRow,
+): void {
+  if (FIAT.has(row.symbol)) {
+    return;
+  }
+  fills.push({ ...meta, side: "BUY", row });
+}
+
+function pushSell(
+  fills: LotFill[],
+  meta: { line: number; order: number; sortKey: string },
+  symbol: string,
+  quantity: number,
+  purchasedAt: string,
+  externalTradeId: string,
+): void {
+  if (FIAT.has(symbol) || quantity <= 0) {
+    return;
+  }
+  fills.push({
+    ...meta,
+    side: "SELL",
+    row: {
+      symbol,
+      quantity,
+      costPerUnit: 0,
+      costCurrency: "USD",
+      purchasedAt,
+      fees: 0,
+      externalTradeId,
+    },
+  });
 }
 
 function parseAppExport(
   records: Record<string, string>[],
   fields: string[],
 ): ParseResult {
-  const rows: CryptoComTradeRow[] = [];
   const errors: Array<{ line: number; message: string }> = [];
+  const fills: LotFill[] = [];
 
   const dateCol = findColumn(fields, ["timestamp (utc)", "timestamp", "date"]);
   const currencyCol = findColumn(fields, ["currency"]);
@@ -153,47 +209,122 @@ function parseAppExport(
       .toLowerCase();
 
     try {
+      const dateRaw = String(record[dateCol] ?? "").trim();
       const purchasedAt = parsePurchasedAt(record[dateCol]);
       const hashRaw = hashCol ? String(record[hashCol] ?? "").trim() : "";
       const explicitId = hashRaw !== "" ? hashRaw : null;
+      const meta = {
+        line,
+        order: index,
+        sortKey: sortKeyFromDate(dateRaw),
+      };
 
       if (APP_BUY_KINDS.has(kind)) {
-        const symbol = String(record[currencyCol] ?? "")
+        const currency = String(record[currencyCol] ?? "")
           .trim()
           .toUpperCase();
-        const quantity = parseNumber(record[amountCol], "quantity");
-        if (quantity <= 0) {
-          errors.push({ line, message: "Skipped sell (non-positive quantity)" });
+        const amount = parseNumber(record[amountCol], "amount");
+        const toCurrency = toCurrencyCol
+          ? String(record[toCurrencyCol] ?? "")
+              .trim()
+              .toUpperCase()
+          : "";
+        const toAmountRaw =
+          toAmountCol && String(record[toAmountCol] ?? "").trim() !== ""
+            ? parseNumber(record[toAmountCol], "to amount")
+            : null;
+
+        // Recurring / viban often: Currency=EUR, To Currency=BTC, To Amount=qty
+        if (
+          toCurrency &&
+          toAmountRaw !== null &&
+          toAmountRaw > 0 &&
+          !FIAT.has(toCurrency)
+        ) {
+          const nativeAmount =
+            nativeAmountCol &&
+            String(record[nativeAmountCol] ?? "").trim() !== ""
+              ? Math.abs(parseNumber(record[nativeAmountCol], "native amount"))
+              : Math.abs(amount);
+          const costCurrency =
+            nativeCurrencyCol &&
+            String(record[nativeCurrencyCol] ?? "").trim() !== ""
+              ? String(record[nativeCurrencyCol] ?? "")
+                  .trim()
+                  .toUpperCase()
+              : FIAT.has(currency)
+                ? currency
+                : "EUR";
+          if (nativeAmount <= 0) {
+            throw new Error("Invalid native cost for purchase");
+          }
+          pushBuy(fills, meta, {
+            symbol: toCurrency,
+            quantity: toAmountRaw,
+            costPerUnit: nativeAmount / toAmountRaw,
+            costCurrency,
+            purchasedAt,
+            fees: 0,
+            externalTradeId: tradeId(
+              "app",
+              explicitId,
+              `${purchasedAt}|${kind}|${currency}|${amount}|${toCurrency}|${toAmountRaw}`,
+            ),
+          });
           return;
         }
-        if (!nativeCurrencyCol || !nativeAmountCol) {
-          throw new Error("Missing native currency/amount for purchase");
+
+        // Direct purchase: Currency=BTC, Amount=qty, Native=cost
+        if (amount > 0 && !FIAT.has(currency)) {
+          if (!nativeCurrencyCol || !nativeAmountCol) {
+            throw new Error("Missing native currency/amount for purchase");
+          }
+          const costCurrency = String(record[nativeCurrencyCol] ?? "")
+            .trim()
+            .toUpperCase();
+          const nativeAmount = Math.abs(
+            parseNumber(record[nativeAmountCol], "native amount"),
+          );
+          if (!costCurrency || nativeAmount <= 0) {
+            throw new Error("Invalid native cost for purchase");
+          }
+          pushBuy(fills, meta, {
+            symbol: currency,
+            quantity: amount,
+            costPerUnit: nativeAmount / amount,
+            costCurrency,
+            purchasedAt,
+            fees: 0,
+            externalTradeId: tradeId(
+              "app",
+              explicitId,
+              `${purchasedAt}|${kind}|${currency}|${amount}|${nativeAmount}`,
+            ),
+          });
+          return;
         }
-        const costCurrency = String(record[nativeCurrencyCol] ?? "")
-          .trim()
-          .toUpperCase();
-        const nativeAmount = Math.abs(
-          parseNumber(record[nativeAmountCol], "native amount"),
-        );
-        if (!costCurrency || nativeAmount <= 0) {
-          throw new Error("Invalid native cost for purchase");
+
+        if (FIAT.has(currency) && !(toCurrency && !FIAT.has(toCurrency))) {
+          errors.push({
+            line,
+            message: `Skipped fiat purchase row (${currency})`,
+          });
+          return;
         }
-        const costPerUnit = nativeAmount / quantity;
-        rows.push({
-          symbol,
-          quantity,
-          costPerUnit,
-          costCurrency,
-          purchasedAt,
-          fees: 0,
-          externalTradeId: tradeId("app", explicitId, `${purchasedAt}|${kind}|${symbol}|${quantity}|${nativeAmount}`),
+
+        errors.push({
+          line,
+          message: "Skipped sell (non-positive quantity)",
         });
         return;
       }
 
       if (kind === "crypto_exchange") {
         if (!toCurrencyCol || !toAmountCol) {
-          errors.push({ line, message: "Skipped crypto_exchange without To Amount" });
+          errors.push({
+            line,
+            message: "Skipped crypto_exchange without To Amount",
+          });
           return;
         }
         const fromCurrency = String(record[currencyCol] ?? "")
@@ -204,39 +335,119 @@ function parseAppExport(
           .trim()
           .toUpperCase();
         const toAmount = parseNumber(record[toAmountCol], "to amount");
+        const id = tradeId(
+          "app",
+          explicitId,
+          `${purchasedAt}|${kind}|${fromCurrency}|${fromAmount}|${toCurrency}|${toAmount}`,
+        );
 
-        // Receiving crypto (toAmount > 0) paid with fromCurrency
+        // Spending crypto → reduce inventory
+        if (!FIAT.has(fromCurrency) && fromAmount < 0) {
+          pushSell(
+            fills,
+            meta,
+            fromCurrency,
+            Math.abs(fromAmount),
+            purchasedAt,
+            `${id}:sell`,
+          );
+        }
+
+        // Receiving crypto → new lot
         if (toAmount > 0 && toCurrency && !FIAT.has(toCurrency)) {
           const cost = Math.abs(fromAmount);
           if (cost <= 0) {
             throw new Error("Invalid exchange cost");
           }
-          rows.push({
+          pushBuy(fills, meta, {
             symbol: toCurrency,
             quantity: toAmount,
             costPerUnit: cost / toAmount,
             costCurrency: fromCurrency || "USD",
             purchasedAt,
             fees: 0,
-            externalTradeId: tradeId(
-              "app",
-              explicitId,
-              `${purchasedAt}|${kind}|${fromCurrency}|${fromAmount}|${toCurrency}|${toAmount}`,
-            ),
+            externalTradeId: id,
           });
           return;
         }
 
-        errors.push({ line, message: "Skipped sell / non-buy crypto_exchange" });
+        if (FIAT.has(toCurrency) || toAmount <= 0) {
+          // crypto → fiat already recorded as sell above
+          return;
+        }
+
+        errors.push({
+          line,
+          message: "Skipped sell / non-buy crypto_exchange",
+        });
         return;
       }
 
-      if (
-        kind === "crypto_viban_exchange" ||
-        kind.includes("sell") ||
-        kind.includes("withdraw")
-      ) {
-        errors.push({ line, message: "Skipped sell" });
+      if (kind === "crypto_viban_exchange") {
+        const symbol = String(record[currencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const amount = parseNumber(record[amountCol], "amount");
+        if (FIAT.has(symbol)) {
+          errors.push({ line, message: "Skipped fiat viban exchange" });
+          return;
+        }
+        pushSell(
+          fills,
+          meta,
+          symbol,
+          Math.abs(amount),
+          purchasedAt,
+          tradeId(
+            "app",
+            explicitId,
+            `${purchasedAt}|${kind}|${symbol}|${amount}`,
+          ),
+        );
+        return;
+      }
+
+      if (kind === "crypto_withdrawal" || kind.includes("withdraw")) {
+        const symbol = String(record[currencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const amount = parseNumber(record[amountCol], "amount");
+        if (FIAT.has(symbol)) {
+          errors.push({ line, message: "Skipped fiat withdrawal" });
+          return;
+        }
+        pushSell(
+          fills,
+          meta,
+          symbol,
+          Math.abs(amount),
+          purchasedAt,
+          tradeId(
+            "app",
+            explicitId,
+            `${purchasedAt}|${kind}|${symbol}|${amount}`,
+          ),
+        );
+        return;
+      }
+
+      if (kind.includes("sell")) {
+        const symbol = String(record[currencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const amount = parseNumber(record[amountCol], "amount");
+        pushSell(
+          fills,
+          meta,
+          symbol,
+          Math.abs(amount),
+          purchasedAt,
+          tradeId(
+            "app",
+            explicitId,
+            `${purchasedAt}|${kind}|${symbol}|${amount}`,
+          ),
+        );
         return;
       }
 
@@ -249,17 +460,23 @@ function parseAppExport(
     }
   });
 
-  return { rows, errors };
+  const netted = netFillsFifo(fills);
+  return { rows: netted.rows, errors: [...errors, ...netted.errors] };
 }
 
 function parseExchangeExport(
   records: Record<string, string>[],
   fields: string[],
 ): ParseResult {
-  const rows: CryptoComTradeRow[] = [];
   const errors: Array<{ line: number; message: string }> = [];
+  const fills: LotFill[] = [];
 
-  const dateCol = findColumn(fields, ["time (utc)", "time", "timestamp", "date"]);
+  const dateCol = findColumn(fields, [
+    "time (utc)",
+    "time",
+    "timestamp",
+    "date",
+  ]);
   const symbolCol = findColumn(fields, ["symbol", "pair", "instrument"]);
   const sideCol = findColumn(fields, ["side"]);
   const priceCol = findColumn(fields, ["trade price", "price"]);
@@ -287,19 +504,24 @@ function parseExchangeExport(
       .trim()
       .toUpperCase();
 
-    if (side !== "BUY") {
-      errors.push({
-        line,
-        message: side === "SELL" ? "Skipped sell" : `Skipped non-buy side: ${side}`,
-      });
+    const isBuy = side === "BUY" || side.includes("BUY");
+    const isSell =
+      side === "SELL" || (side.includes("SELL") && !side.includes("BUY"));
+
+    if (!isBuy && !isSell) {
+      errors.push({ line, message: `Skipped non-buy side: ${side}` });
       return;
     }
 
     try {
       const { base, quote } = splitPair(String(record[symbolCol] ?? ""));
+      if (FIAT.has(base)) {
+        errors.push({ line, message: `Skipped fiat pair base: ${base}` });
+        return;
+      }
       const quantity = parseNumber(record[amountCol], "trade amount");
       if (quantity <= 0) {
-        errors.push({ line, message: "Skipped sell (non-positive quantity)" });
+        errors.push({ line, message: "Skipped non-positive quantity" });
         return;
       }
       const price = parseNumber(record[priceCol], "trade price");
@@ -318,22 +540,31 @@ function parseExchangeExport(
         }
       }
 
+      const dateRaw = String(record[dateCol] ?? "").trim();
       const purchasedAt = parsePurchasedAt(record[dateCol]);
       const tradeIdRaw = tradeIdCol
         ? String(record[tradeIdCol] ?? "").trim()
         : "";
-      rows.push({
-        symbol: base,
-        quantity,
-        costPerUnit: price,
-        costCurrency: quote,
-        purchasedAt,
-        fees,
-        externalTradeId: tradeId(
-          "ex",
-          tradeIdRaw || null,
-          `${purchasedAt}|${base}|${quote}|${quantity}|${price}|${fees}`,
-        ),
+      const id = tradeId(
+        "ex",
+        tradeIdRaw || null,
+        `${purchasedAt}|${base}|${quote}|${side}|${quantity}|${price}|${fees}`,
+      );
+
+      fills.push({
+        line,
+        order: index,
+        sortKey: sortKeyFromDate(dateRaw),
+        side: isSell ? "SELL" : "BUY",
+        row: {
+          symbol: base,
+          quantity,
+          costPerUnit: price,
+          costCurrency: quote,
+          purchasedAt,
+          fees,
+          externalTradeId: id,
+        },
       });
     } catch (e) {
       errors.push({
@@ -343,7 +574,8 @@ function parseExchangeExport(
     }
   });
 
-  return { rows, errors };
+  const netted = netFillsFifo(fills);
+  return { rows: netted.rows, errors: [...errors, ...netted.errors] };
 }
 
 export function parseCryptoComTradesCsv(csvText: string): ParseResult {

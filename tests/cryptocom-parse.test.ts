@@ -13,20 +13,15 @@ const exchangeFixture = path.join(
 );
 
 describe("parseCryptoComTradesCsv", () => {
-  it("parses App crypto_purchase and crypto_exchange buys", () => {
+  it("parses App buys, nets sells FIFO, and uses To Currency for recurring buys", () => {
     const result = parseCryptoComTradesCsv(readFileSync(appFixture, "utf8"));
 
-    expect(result.rows).toHaveLength(2);
-    expect(result.rows[0]).toMatchObject({
-      symbol: "BTC",
-      quantity: 0.01,
-      costPerUnit: 85000,
-      costCurrency: "EUR",
-      purchasedAt: "2025-02-10",
-      fees: 0,
-      externalTradeId: "cryptocom:hash-btc-1",
-    });
-    expect(result.rows[1]).toMatchObject({
+    // BTC: 0.01 purchase - 0.005 viban sell + 0.001 recurring = 0.006 across lots
+    // ETH: 0.5 from exchange
+    const btcLots = result.rows.filter((r) => r.symbol === "BTC");
+    const eth = result.rows.find((r) => r.symbol === "ETH");
+    expect(btcLots.reduce((sum, r) => sum + r.quantity, 0)).toBeCloseTo(0.006);
+    expect(eth).toMatchObject({
       symbol: "ETH",
       quantity: 0.5,
       costPerUnit: 3200,
@@ -34,14 +29,15 @@ describe("parseCryptoComTradesCsv", () => {
       purchasedAt: "2025-02-11",
       externalTradeId: "cryptocom:hash-eth-1",
     });
+    expect(result.rows).toHaveLength(3);
+    expect(
+      result.errors.some((e) => /applied sell/i.test(e.message)),
+    ).toBe(true);
   });
 
-  it("skips sells, rewards, and bad rows from App exports", () => {
+  it("skips rewards and bad rows from App exports", () => {
     const result = parseCryptoComTradesCsv(readFileSync(appFixture, "utf8"));
 
-    expect(
-      result.errors.some((e) => e.message.toLowerCase().includes("sell")),
-    ).toBe(true);
     expect(
       result.errors.some((e) => e.message.toLowerCase().includes("skip")),
     ).toBe(true);
@@ -54,22 +50,56 @@ describe("parseCryptoComTradesCsv", () => {
     ).toBe(true);
   });
 
-  it("parses Exchange spot trade history buys", () => {
+  it("drops fully sold App positions and skips fiat buy symbols", () => {
+    const csv =
+      "Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash\n" +
+      "2025-01-01 10:00:00,Buy BTC,BTC,1,,,EUR,100,100,crypto_purchase,h1\n" +
+      "2025-01-02 10:00:00,Sell BTC,BTC,-1,EUR,120,EUR,120,120,crypto_viban_exchange,h2\n" +
+      "2025-01-03 10:00:00,Buy ETH,EUR,50,ETH,0.02,EUR,50,50,recurring_buy_order,h3\n";
+
+    const result = parseCryptoComTradesCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.02,
+      costPerUnit: 2500,
+      costCurrency: "EUR",
+    });
+    expect(
+      result.errors.some((e) => /closed position:\s*btc/i.test(e.message)),
+    ).toBe(true);
+  });
+
+  it("treats withdrawals as sells for FIFO netting", () => {
+    const csv =
+      "Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash\n" +
+      "2025-01-01 10:00:00,Buy ETH,ETH,2,,,EUR,4000,4000,crypto_purchase,w1\n" +
+      "2025-01-02 10:00:00,Withdraw ETH,ETH,-1.5,,,EUR,3000,3000,crypto_withdrawal,w2\n";
+
+    const result = parseCryptoComTradesCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.5,
+    });
+  });
+
+  it("parses Exchange spot trades and nets sells FIFO", () => {
     const result = parseCryptoComTradesCsv(
       readFileSync(exchangeFixture, "utf8"),
     );
 
     expect(result.rows).toHaveLength(2);
-    expect(result.rows[0]).toMatchObject({
+    const btc = result.rows.find((r) => r.symbol === "BTC");
+    expect(btc).toMatchObject({
       symbol: "BTC",
-      quantity: 0.02,
+      quantity: 0.01,
       costPerUnit: 90000,
       costCurrency: "USDT",
       purchasedAt: "2025-02-20",
-      fees: 0.9,
-      externalTradeId: "cryptocom:TRD-1001",
     });
-    expect(result.rows[1]).toMatchObject({
+    expect(btc!.fees).toBeCloseTo(0.45);
+    expect(result.rows.find((r) => r.symbol === "ETH")).toMatchObject({
       symbol: "ETH",
       quantity: 0.25,
       costPerUnit: 3000,
@@ -77,7 +107,7 @@ describe("parseCryptoComTradesCsv", () => {
       fees: 0.75,
     });
     expect(
-      result.errors.some((e) => e.message.toLowerCase().includes("sell")),
+      result.errors.some((e) => /applied sell/i.test(e.message)),
     ).toBe(true);
   });
 

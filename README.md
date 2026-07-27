@@ -25,7 +25,7 @@ npm test
 
 - **Interactive Brokers** — Import → IBKR → Flex/Activity trades CSV (equities)
 - **Binance** — Import → Binance → Spot Trade History (buys netted FIFO against sells) **or** Auto-Invest History (Success buys)
-- **Crypto.com** — Import → Crypto.com → App transaction history or Exchange trade history CSV (buys / receive-side exchanges)
+- **Crypto.com** — Import → Crypto.com → App or Exchange CSV (buys/sells/withdrawals netted FIFO; combine date-range exports first)
 
 USDT/USDC lots convert via USD for FX. Unsupported CoinGecko symbols import as lots but stay unpriced until mapped.
 

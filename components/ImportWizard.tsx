@@ -62,7 +62,7 @@ function brokerCopy(
   }
   return {
     title: "Select a Crypto.com CSV",
-    hint: "App: Accounts → History → Export, or Exchange trade history. Buys and crypto_exchange receives become crypto lots; sells/rewards are skipped.",
+    hint: "App: Accounts → History → Export (combine date-range CSVs first). Buys/sells/withdrawals are netted FIFO; rewards skipped.",
     assetLabel: "Asset",
   };
 }

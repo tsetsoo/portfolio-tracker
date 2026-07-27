@@ -30,9 +30,9 @@ describe("Crypto.com import commit", () => {
 
   it("inserts crypto lots from App CSV and skips duplicates", () => {
     const preview = previewCryptoComImport(db, appCsv);
-    expect(preview.toInsert).toHaveLength(2);
+    expect(preview.toInsert).toHaveLength(3);
     expect(commitCryptoComImport(db, preview.toInsert)).toEqual({
-      inserted: 2,
+      inserted: 3,
     });
 
     const holdings = db
@@ -47,7 +47,7 @@ describe("Crypto.com import commit", () => {
 
     const repeated = previewCryptoComImport(db, appCsv);
     expect(repeated.toInsert).toEqual([]);
-    expect(repeated.duplicates).toHaveLength(2);
+    expect(repeated.duplicates).toHaveLength(3);
   });
 
   it("rolls back on lot insert failure", () => {

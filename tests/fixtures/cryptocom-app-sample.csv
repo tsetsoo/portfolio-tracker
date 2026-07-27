@@ -4,3 +4,4 @@ Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Na
 2025-02-12 15:00:00,BTC -> EUR,BTC,-0.005,EUR,400.00,EUR,400.00,430.00,crypto_viban_exchange,hash-sell-1
 2025-02-13 10:00:00,Card Cashback,CRO,5,,,EUR,0.50,0.54,referral_card_cashback,hash-reward-1
 2025-02-14 11:00:00,Buy SOL,SOL,not-a-qty,,,EUR,100.00,108.00,crypto_purchase,hash-bad-1
+2025-02-15 12:00:00,Recurring Buy BTC,EUR,50.00,BTC,0.001,EUR,50.00,54.00,recurring_buy_order,hash-recur-1
