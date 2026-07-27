@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { SidebarNav } from "@/components/SidebarNav";
+
 const desktopLinks = [
   { href: "/", label: "Home" },
   { href: "/holdings", label: "Holdings" },
@@ -10,6 +12,7 @@ const desktopLinks = [
 
 const mobileLinks = [
   { href: "/", label: "Home" },
+  { href: "/holdings", label: "Holdings" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -32,25 +35,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <Wordmark />
-        <nav className="desktop-nav" aria-label="Desktop navigation">
-          {desktopLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <SidebarNav
+          className="desktop-nav"
+          ariaLabel="Desktop navigation"
+          links={desktopLinks}
+        />
         <p className="sidebar-note">Private portfolio record</p>
       </aside>
 
       <header className="mobile-header">
         <Wordmark />
-        <nav className="mobile-nav" aria-label="Mobile navigation">
-          {mobileLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <SidebarNav
+          className="mobile-nav"
+          ariaLabel="Mobile navigation"
+          links={mobileLinks}
+        />
       </header>
 
       <div className="shell-content">{children}</div>

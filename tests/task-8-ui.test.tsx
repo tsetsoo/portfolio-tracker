@@ -73,8 +73,11 @@ describe("holdings management UI", () => {
     expect(html).toContain("BTC");
     expect(html).toContain("€17,000.00");
     expect(html).toContain("<details");
+    expect(html).toContain(" open");
+    expect(html).toContain("Purchases");
     expect(html).toContain("0.25");
     expect(html).toContain("$60,000.00");
+    expect(html).toContain("Units @ price");
     expect(html).toContain("Jul 1, 2026");
     expect(html).toContain("$12.50");
     expect(html).toContain('name="holdingId"');

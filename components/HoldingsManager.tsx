@@ -25,6 +25,14 @@ function formatDate(value: string): string {
   }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
 }
 
+function sortLots(lots: Lot[]): Lot[] {
+  return [...lots].sort((a, b) => {
+    const byDate = a.purchasedAt.localeCompare(b.purchasedAt);
+    if (byDate !== 0) return byDate;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function HoldingsManager({
   holdings,
   lotsByHolding,
@@ -41,7 +49,7 @@ export function HoldingsManager({
   return (
     <div className="managed-holdings">
       {holdings.map((item) => {
-        const lots = lotsByHolding[item.holding.id] ?? [];
+        const lots = sortLots(lotsByHolding[item.holding.id] ?? []);
         const pl = item.unrealizedPlBase;
         const direction = pl == null ? "neutral" : pl >= 0 ? "gain" : "loss";
 
@@ -103,18 +111,22 @@ export function HoldingsManager({
             </div>
 
             {lots.length > 0 && (
-              <details className="lots-disclosure">
+              <details className="lots-disclosure" open>
                 <summary>
-                  {lots.length} {lots.length === 1 ? "lot" : "lots"}
-                  <span aria-hidden="true">＋</span>
+                  <span className="lots-summary-label">
+                    Purchases
+                    <em>
+                      {lots.length} {lots.length === 1 ? "lot" : "lots"}
+                    </em>
+                  </span>
+                  <span className="lots-chevron" aria-hidden="true" />
                 </summary>
                 <div className="lots-scroll">
                   <table className="lots-table">
                     <thead>
                       <tr>
-                        <th>Purchase date</th>
-                        <th className="numeric">Quantity</th>
-                        <th className="numeric">Cost / unit</th>
+                        <th>Bought</th>
+                        <th className="numeric">Units @ price</th>
                         <th className="numeric">Fees</th>
                       </tr>
                     </thead>
@@ -122,10 +134,9 @@ export function HoldingsManager({
                       {lots.map((lot) => (
                         <tr key={lot.id}>
                           <td>{formatDate(lot.purchasedAt)}</td>
-                          <td className="numeric">
-                            {formatQuantity(lot.quantity)}
-                          </td>
-                          <td className="numeric">
+                          <td className="numeric lots-fill">
+                            <strong>{formatQuantity(lot.quantity)}</strong>
+                            <span> @ </span>
                             {formatMoney(lot.costPerUnit, lot.costCurrency)}
                           </td>
                           <td className="numeric">

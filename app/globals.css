@@ -102,6 +102,11 @@ button {
   padding: 7px 8px;
 }
 
+.mobile-nav a[aria-current="page"] {
+  border-color: #78928a;
+  color: #ffffff;
+}
+
 .mobile-nav a:focus-visible,
 .desktop-nav a:focus-visible,
 .wordmark:focus-visible,
@@ -519,29 +524,52 @@ button {
   font-weight: 700;
   justify-content: space-between;
   list-style: none;
-  padding: 10px 16px;
+  padding: 12px 16px;
+  user-select: none;
 }
 
 .lots-disclosure summary::-webkit-details-marker {
   display: none;
 }
 
-.lots-disclosure summary span {
-  color: var(--gain);
-  font-size: 16px;
+.lots-summary-label {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.lots-disclosure[open] summary span {
+.lots-summary-label em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lots-chevron {
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  display: inline-block;
+  height: 8px;
   transform: rotate(45deg);
+  transition: transform 120ms ease;
+  width: 8px;
+}
+
+.lots-disclosure[open] .lots-chevron {
+  transform: rotate(225deg) translate(0, 1px);
 }
 
 .lots-scroll {
   overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .lots-table {
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 12px;
   width: 100%;
 }
 
@@ -549,20 +577,25 @@ button {
   color: var(--muted);
   font-size: 9px;
   letter-spacing: 0.08em;
-  padding: 8px 16px;
+  padding: 4px 16px 8px;
   text-align: left;
   text-transform: uppercase;
 }
 
 .lots-table td {
   border-top: 1px solid var(--line);
-  padding: 10px 16px;
+  padding: 11px 16px;
   white-space: nowrap;
 }
 
 .lots-table .numeric {
   font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
   text-align: right;
+}
+
+.lots-fill strong {
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .management-section {
@@ -772,13 +805,13 @@ button {
     padding: 10px 14px 10px 22px;
   }
 
-  .desktop-nav a:first-child {
-    background: #172a35;
-    border-color: #72a088;
+  .desktop-nav a:hover {
     color: #ffffff;
   }
 
-  .desktop-nav a:hover {
+  .desktop-nav a[aria-current="page"] {
+    background: #172a35;
+    border-color: #72a088;
     color: #ffffff;
   }
 
