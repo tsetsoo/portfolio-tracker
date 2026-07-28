@@ -34,6 +34,7 @@ interface LotRow {
   purchased_at: string;
   fees: number;
   external_trade_id: string | null;
+  import_batch_id: string | null;
 }
 
 export interface ValuePortfolioOptions {
@@ -74,6 +75,7 @@ function readLots(db: Database.Database): Lot[] {
     purchasedAt: row.purchased_at,
     fees: row.fees,
     externalTradeId: row.external_trade_id,
+    importBatchId: row.import_batch_id ?? null,
   }));
 }
 

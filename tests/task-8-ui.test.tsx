@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { HoldingForm } from "@/components/HoldingForm";
 import { HoldingsManager } from "@/components/HoldingsManager";
+import { ResetPortfolioForm } from "@/components/ResetPortfolioForm";
 import { SettingsForm } from "@/components/SettingsForm";
 import { migrate } from "@/lib/db/migrate";
 import type { ValuedHolding } from "@/lib/domain/types";
@@ -63,6 +64,7 @@ describe("holdings management UI", () => {
               purchasedAt: "2026-07-01",
               fees: 12.5,
               externalTradeId: null,
+              importBatchId: null,
             },
           ],
         }}
@@ -122,6 +124,16 @@ describe("base currency settings", () => {
     expect(html).toContain('name="baseCurrency"');
     expect(html).toContain('value="EUR"');
     expect(html).toContain('maxLength="3"');
+  });
+
+  it("renders a reset control that documents what is wiped", () => {
+    const html = renderToStaticMarkup(<ResetPortfolioForm />);
+
+    expect(html).toContain("Reset portfolio data");
+    expect(html).toContain("holdings");
+    expect(html).toContain("snapshots");
+    expect(html).toContain('name="confirmation"');
+    expect(html).toContain("Type RESET to confirm");
   });
 
   it("normalizes valid ISO codes and rejects malformed codes", () => {

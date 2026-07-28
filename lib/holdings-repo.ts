@@ -23,6 +23,7 @@ interface LotRow {
   purchased_at: string;
   fees: number;
   external_trade_id: string | null;
+  import_batch_id: string | null;
 }
 
 export interface CreateLotInput {
@@ -32,6 +33,7 @@ export interface CreateLotInput {
   purchasedAt: string;
   fees?: number;
   externalTradeId?: string | null;
+  importBatchId?: string | null;
 }
 
 export interface CreateHoldingInput {
@@ -70,6 +72,7 @@ function mapLot(row: LotRow): Lot {
     purchasedAt: row.purchased_at,
     fees: row.fees,
     externalTradeId: row.external_trade_id,
+    importBatchId: row.import_batch_id ?? null,
   };
 }
 
@@ -86,7 +89,7 @@ export function listHoldingsWithLots(
   const lots = db
     .prepare(
       `SELECT id, holding_id, quantity, cost_per_unit, cost_currency,
-              purchased_at, fees, external_trade_id
+              purchased_at, fees, external_trade_id, import_batch_id
        FROM lots
        ORDER BY purchased_at, id`,
     )
@@ -156,13 +159,14 @@ export function addLot(
     purchasedAt: input.purchasedAt,
     fees: input.fees ?? 0,
     externalTradeId: input.externalTradeId ?? null,
+    importBatchId: input.importBatchId ?? null,
   };
 
   db.prepare(
     `INSERT INTO lots (
        id, holding_id, quantity, cost_per_unit, cost_currency,
-       purchased_at, fees, external_trade_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       purchased_at, fees, external_trade_id, import_batch_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     lot.id,
     lot.holdingId,
@@ -172,6 +176,7 @@ export function addLot(
     lot.purchasedAt,
     lot.fees,
     lot.externalTradeId,
+    lot.importBatchId,
   );
 
   return lot;

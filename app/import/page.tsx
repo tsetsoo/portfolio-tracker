@@ -1,6 +1,13 @@
 import { ImportWizard } from "@/components/ImportWizard";
+import { PastImports } from "@/components/PastImports";
+import { getDb } from "@/lib/db/client";
+import { listImportBatches } from "@/lib/import/batches";
+
+export const dynamic = "force-dynamic";
 
 export default function ImportPage() {
+  const batches = listImportBatches(getDb());
+
   return (
     <main className="dashboard management-page import-page">
       <header className="page-header">
@@ -13,6 +20,7 @@ export default function ImportPage() {
       </header>
 
       <ImportWizard />
+      <PastImports batches={batches} />
     </main>
   );
 }

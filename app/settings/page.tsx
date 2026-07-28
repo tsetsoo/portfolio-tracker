@@ -1,3 +1,4 @@
+import { ResetPortfolioForm } from "@/components/ResetPortfolioForm";
 import { SettingsForm } from "@/components/SettingsForm";
 import { getDb } from "@/lib/db/client";
 import { getSettings } from "@/lib/settings";
@@ -24,6 +25,10 @@ export default function SettingsPage() {
           <span>{settings.baseCurrency}</span>
         </div>
         <SettingsForm baseCurrency={settings.baseCurrency} />
+      </section>
+
+      <section className="dashboard-panel settings-panel reset-panel">
+        <ResetPortfolioForm />
       </section>
     </main>
   );

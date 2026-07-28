@@ -16,6 +16,8 @@ import type {
 } from "@/lib/binance/commit";
 import type { CryptoComImportPreview } from "@/lib/cryptocom/commit";
 import type { IbkrImportPreview } from "@/lib/ibkr/commit";
+import { suggestImportBatchName } from "@/lib/import/batch-names";
+import type { CommitImportMeta } from "@/lib/import/commit-with-batch";
 import { combineCsvTexts } from "@/lib/import/combine-csv";
 import { summarizeImportNotes } from "@/lib/import/notes";
 
@@ -27,6 +29,8 @@ type Preview =
   | IbkrImportPreview
   | BinanceImportPreview
   | CryptoComImportPreview;
+
+type ImportMetaInput = Omit<CommitImportMeta, "broker">;
 
 const BROKER_LABELS: Record<Broker, string> = {
   ibkr: "Interactive Brokers",
@@ -47,6 +51,15 @@ const BINANCE_FORMAT_COPY: Record<
     hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units). Multiple files are combined. This does not import deposits from other exchanges.",
   },
 };
+
+function sourceDetailFor(
+  broker: Broker,
+  binanceFormat: BinanceImportFormat,
+): string {
+  if (broker === "binance") return binanceFormat;
+  if (broker === "ibkr") return "trades";
+  return "app";
+}
 
 function brokerCopy(
   broker: Broker,
@@ -87,14 +100,19 @@ async function previewForBroker(
 async function commitForBroker(
   broker: Broker,
   rows: Preview["toInsert"],
+  meta: ImportMetaInput,
+  binanceFormat: BinanceImportFormat,
 ): Promise<{ inserted: number }> {
   switch (broker) {
     case "ibkr":
-      return commitIbkrRows(rows as never);
+      return commitIbkrRows(rows as never, meta);
     case "binance":
-      return commitBinanceRows(rows as never);
+      return commitBinanceRows(rows as never, {
+        ...meta,
+        sourceDetail: binanceFormat,
+      });
     case "cryptocom":
-      return commitCryptoComRows(rows as never);
+      return commitCryptoComRows(rows as never, meta);
   }
 }
 
@@ -104,17 +122,25 @@ export function ImportWizard() {
   const [binanceFormat, setBinanceFormat] =
     useState<BinanceImportFormat>("spot");
   const [fileName, setFileName] = useState("");
+  const [fileNames, setFileNames] = useState<string[]>([]);
+  const [importName, setImportName] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const copy = brokerCopy(broker, binanceFormat);
   const noteSummary = preview ? summarizeImportNotes(preview.errors) : null;
+  const canCommit =
+    Boolean(preview) &&
+    (preview?.toInsert.length ?? 0) > 0 &&
+    importName.trim().length > 0;
 
   function resetFile() {
     setPreview(null);
     setMessage("");
     setFileName("");
+    setFileNames([]);
+    setImportName("");
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -140,8 +166,20 @@ export function ImportWizard() {
     setPreview(null);
     setMessage("");
     const files = fileList ? Array.from(fileList) : [];
+    const names = files.map((file) => file.name);
     setFileName(fileLabel(files));
-    if (files.length === 0) return;
+    setFileNames(names);
+    setImportName(
+      suggestImportBatchName(
+        broker,
+        new Date(),
+        sourceDetailFor(broker, binanceFormat),
+      ),
+    );
+    if (files.length === 0) {
+      setImportName("");
+      return;
+    }
 
     startTransition(async () => {
       try {
@@ -157,13 +195,29 @@ export function ImportWizard() {
   }
 
   function confirmImport() {
-    if (!preview || preview.toInsert.length === 0) return;
+    if (!preview || preview.toInsert.length === 0 || !importName.trim()) return;
+
+    const notes = preview.errors.map((error) => error.message);
+    const meta: ImportMetaInput = {
+      name: importName.trim(),
+      sourceDetail: sourceDetailFor(broker, binanceFormat),
+      fileNames,
+      duplicates: preview.duplicates.length,
+      closedCount: noteSummary?.closed ?? 0,
+      skippedCount: noteSummary?.skipped ?? 0,
+      notes,
+    };
 
     startTransition(async () => {
       try {
-        const result = await commitForBroker(broker, preview.toInsert);
+        const result = await commitForBroker(
+          broker,
+          preview.toInsert,
+          meta,
+          binanceFormat,
+        );
         setMessage(
-          `${result.inserted} ${result.inserted === 1 ? "lot" : "lots"} imported.`,
+          `${result.inserted} ${result.inserted === 1 ? "lot" : "lots"} imported as “${importName.trim()}”.`,
         );
         setPreview({
           ...preview,
@@ -365,10 +419,27 @@ export function ImportWizard() {
             </details>
           )}
 
+          {preview.toInsert.length > 0 && (
+            <label className={styles.importName}>
+              Import name
+              <input
+                type="text"
+                value={importName}
+                onChange={(event) => setImportName(event.target.value)}
+                placeholder="e.g. Crypto.com 2026-07-28"
+                required
+                disabled={isPending}
+              />
+              <span className={styles.importNameHint}>
+                Saved under Past imports so you can tell re-imports apart.
+              </span>
+            </label>
+          )}
+
           <button
             className="primary-button"
             type="button"
-            disabled={isPending || preview.toInsert.length === 0}
+            disabled={isPending || !canCommit}
             onClick={confirmImport}
           >
             {isPending ? "Importing…" : "Import reviewed trades"}

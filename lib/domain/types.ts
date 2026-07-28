@@ -20,6 +20,7 @@ export interface Lot {
   purchasedAt: string;
   fees: number;
   externalTradeId: string | null;
+  importBatchId: string | null;
 }
 
 export interface Settings {

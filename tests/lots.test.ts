@@ -13,6 +13,7 @@ describe("aggregateLots", () => {
         purchasedAt: "2024-01-01",
         fees: 0,
         externalTradeId: null,
+        importBatchId: null,
       },
       {
         id: "2",
@@ -23,6 +24,7 @@ describe("aggregateLots", () => {
         purchasedAt: "2024-06-01",
         fees: 0,
         externalTradeId: null,
+        importBatchId: null,
       },
     ]);
     expect(result.quantity).toBe(20);
@@ -47,6 +49,7 @@ describe("aggregateLots", () => {
           purchasedAt: "2024-01-01",
           fees: 0,
           externalTradeId: null,
+          importBatchId: null,
         },
         {
           id: "2",
@@ -57,6 +60,7 @@ describe("aggregateLots", () => {
           purchasedAt: "2024-06-01",
           fees: 0,
           externalTradeId: null,
+          importBatchId: null,
         },
       ]),
     ).toThrow(MixedCostCurrencyError);

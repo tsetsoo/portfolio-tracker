@@ -63,6 +63,7 @@ describe("holdings repository", () => {
             purchasedAt: "2026-01-15",
             fees: 1.25,
             externalTradeId: "trade-1",
+            importBatchId: null,
           },
         ],
       },
@@ -114,6 +115,7 @@ describe("holdings repository", () => {
       purchasedAt: "2026-03-04",
       fees: 0,
       externalTradeId: null,
+      importBatchId: null,
     });
   });
 

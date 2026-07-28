@@ -49,6 +49,7 @@ export function previewCryptoComImport(
 export function commitCryptoComImport(
   db: Database.Database,
   rows: CryptoComTradeRow[],
+  options: { importBatchId?: string | null } = {},
 ): { inserted: number } {
   return db.transaction(() => {
     let inserted = 0;
@@ -85,6 +86,7 @@ export function commitCryptoComImport(
         purchasedAt: row.purchasedAt,
         fees: row.fees,
         externalTradeId: row.externalTradeId,
+        importBatchId: options.importBatchId,
       });
       inserted += 1;
     }

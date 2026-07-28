@@ -1,5 +1,16 @@
 import type Database from "better-sqlite3";
 
+function hasColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  return cols.some((c) => c.name === column);
+}
+
 export function migrate(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -27,7 +38,8 @@ export function migrate(db: Database.Database): void {
       cost_currency TEXT NOT NULL,
       purchased_at TEXT NOT NULL,
       fees REAL NOT NULL DEFAULT 0,
-      external_trade_id TEXT UNIQUE
+      external_trade_id TEXT UNIQUE,
+      import_batch_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS price_cache (
@@ -52,5 +64,25 @@ export function migrate(db: Database.Database): void {
       total_base REAL NOT NULL,
       breakdown_json TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS import_batches (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      broker TEXT NOT NULL CHECK (broker IN ('ibkr','binance','cryptocom')),
+      source_detail TEXT,
+      created_at TEXT NOT NULL,
+      file_names_json TEXT NOT NULL DEFAULT '[]',
+      lots_inserted INTEGER NOT NULL DEFAULT 0,
+      duplicates INTEGER NOT NULL DEFAULT 0,
+      closed_count INTEGER NOT NULL DEFAULT 0,
+      skipped_count INTEGER NOT NULL DEFAULT 0,
+      symbols_touched_json TEXT NOT NULL DEFAULT '[]',
+      notes_json TEXT NOT NULL DEFAULT '[]'
+    );
   `);
+
+  // Existing DBs created before import_batch_id: add the column safely.
+  if (hasColumn(db, "lots", "id") && !hasColumn(db, "lots", "import_batch_id")) {
+    db.exec(`ALTER TABLE lots ADD COLUMN import_batch_id TEXT`);
+  }
 }

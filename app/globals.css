@@ -732,6 +732,108 @@ button {
   justify-self: auto;
 }
 
+.reset-panel {
+  margin-top: 16px;
+}
+
+.reset-form {
+  border: 1px solid #e4c9c9;
+  gap: 10px;
+  padding: 20px 16px 24px;
+}
+
+.reset-form .danger-button,
+.reset-button {
+  margin-left: 0;
+}
+
+.reset-form .danger-button:disabled,
+.reset-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.reset-form .danger-button:disabled:hover,
+.reset-button:disabled:hover {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--loss);
+}
+
+.past-imports-panel {
+  margin-top: 22px;
+}
+
+.past-imports-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin-top: 14px;
+}
+
+.past-import-row {
+  align-items: start;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.past-import-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.past-import-main h3 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.past-import-meta,
+.past-import-files,
+.past-import-counts {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.past-import-files {
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.past-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.past-import-actions .danger-button {
+  margin-left: 0;
+}
+
+.past-import-rename {
+  align-items: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.past-import-rename input {
+  background: #fbfcfb;
+  border: 1px solid #bdcac5;
+  flex: 1 1 180px;
+  font: 13px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+@media (min-width: 720px) {
+  .past-import-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
 @media (min-width: 600px) {
   .net-worth-header {
     align-items: end;

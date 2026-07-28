@@ -9,6 +9,7 @@ import {
   commitIbkrImport,
   previewIbkrImport,
 } from "@/lib/ibkr/commit";
+import { createImportBatch } from "@/lib/import/batches";
 
 const fixtureCsv = readFileSync(
   path.join(__dirname, "fixtures", "ibkr-trades-sample.csv"),
@@ -73,6 +74,26 @@ describe("IBKR import commit", () => {
     expect(repeated.toInsert).toEqual([]);
     expect(repeated.duplicates).toHaveLength(2);
     expect(commitIbkrImport(db, repeated.duplicates)).toEqual({ inserted: 0 });
+  });
+
+  it("links inserted lots to an import batch when provided", () => {
+    const preview = previewIbkrImport(db, fixtureCsv);
+    const batch = createImportBatch(db, {
+      name: "IBKR July",
+      broker: "ibkr",
+      sourceDetail: "trades",
+    });
+
+    expect(
+      commitIbkrImport(db, preview.toInsert, { importBatchId: batch.id }),
+    ).toEqual({ inserted: 2 });
+
+    const linked = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM lots WHERE import_batch_id = ?",
+      )
+      .get(batch.id) as { n: number };
+    expect(linked.n).toBe(2);
   });
 
   it("rolls back all holdings and lots when a row fails", () => {

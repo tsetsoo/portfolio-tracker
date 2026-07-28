@@ -50,6 +50,7 @@ export function previewIbkrImport(
 export function commitIbkrImport(
   db: Database.Database,
   rows: IbkrTradeRow[],
+  options: { importBatchId?: string | null } = {},
 ): { inserted: number } {
   return db.transaction(() => {
     let inserted = 0;
@@ -86,6 +87,7 @@ export function commitIbkrImport(
         purchasedAt: row.purchasedAt,
         fees: row.fees,
         externalTradeId: row.externalTradeId,
+        importBatchId: options.importBatchId,
       });
       inserted += 1;
     }

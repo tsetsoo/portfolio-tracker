@@ -241,6 +241,42 @@
   padding: 11px 13px;
 }
 
+.importName {
+  color: var(--ink-soft);
+  display: grid;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.importName input {
+  background: #fbfcfb;
+  border: 1px solid #bdcac5;
+  color: var(--ink);
+  font: 13px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  letter-spacing: normal;
+  min-height: 40px;
+  padding: 9px 10px;
+  text-transform: none;
+  width: 100%;
+}
+
+.importName input:focus {
+  border-color: var(--gain);
+  outline: 2px solid #dceae2;
+  outline-offset: 1px;
+}
+
+.importNameHint {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 @media (min-width: 600px) {
   .step {
     padding: 22px;
