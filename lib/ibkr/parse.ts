@@ -1,14 +1,13 @@
 import Papa from "papaparse";
 
-export type IbkrTradeRow = {
-  symbol: string;
-  quantity: number;
-  costPerUnit: number;
-  costCurrency: string;
-  purchasedAt: string;
-  fees: number;
-  externalTradeId: string | null;
-};
+import {
+  netFillsFifo,
+  sortKeyFromDate,
+  type LotFill,
+  type LotRow,
+} from "@/lib/import/fifo-net";
+
+export type IbkrTradeRow = LotRow;
 
 export type ParseResult = {
   rows: IbkrTradeRow[];
@@ -185,12 +184,20 @@ function looksLikeSectionedStatement(csvText: string): boolean {
   );
 }
 
+function isBuyType(rawType: string): boolean {
+  return rawType === "buy" || rawType === "bot";
+}
+
+function isSellType(rawType: string): boolean {
+  return rawType === "sell" || rawType === "sld";
+}
+
 function parseTradeRecords(
   table: NormalizedTable,
   options: { requireTransactionTypeFilter: boolean },
 ): ParseResult {
-  const rows: IbkrTradeRow[] = [];
   const errors: Array<{ line: number; message: string }> = [];
+  const fills: LotFill[] = [];
 
   const symbolCol = resolveColumn(table.fields, "symbol");
   const quantityCol = resolveColumn(table.fields, "quantity");
@@ -221,38 +228,45 @@ function parseTradeRecords(
     };
   }
 
-  for (const { record, line } of table.records) {
+  table.records.forEach(({ record, line }, order) => {
+    const rawType = typeCol
+      ? String(record[typeCol] ?? "").trim().toLowerCase()
+      : "";
+
     if (options.requireTransactionTypeFilter || typeCol) {
-      const rawType = typeCol
-        ? String(record[typeCol] ?? "").trim().toLowerCase()
-        : "";
-      if (rawType !== "" && rawType !== "buy") {
-        if (rawType === "sell") {
-          errors.push({ line, message: "Skipped sell (non-positive quantity)" });
-        }
+      if (rawType !== "" && !isBuyType(rawType) && !isSellType(rawType)) {
         // Deposits, dividends, forex, adjustments, etc. — ignore quietly.
-        continue;
+        return;
       }
     }
 
     if (isBlankCell(record[quantityCol]) || isBlankCell(record[symbolCol])) {
-      continue;
+      return;
     }
 
-    let quantity: number;
+    let signedQty: number;
     try {
-      quantity = parseNumber(record[quantityCol], "quantity");
+      signedQty = parseNumber(record[quantityCol], "quantity");
     } catch (e) {
       errors.push({
         line,
         message: e instanceof Error ? e.message : "Invalid quantity",
       });
-      continue;
+      return;
     }
 
+    const sideFromType = isSellType(rawType)
+      ? "SELL"
+      : isBuyType(rawType)
+        ? "BUY"
+        : null;
+    const side: "BUY" | "SELL" =
+      sideFromType ?? (signedQty < 0 ? "SELL" : "BUY");
+    const quantity = Math.abs(signedQty);
+
     if (quantity <= 0) {
-      errors.push({ line, message: "Skipped sell (non-positive quantity)" });
-      continue;
+      errors.push({ line, message: "Skipped non-positive quantity" });
+      return;
     }
 
     try {
@@ -269,14 +283,21 @@ function parseTradeRecords(
           ? String(tradeIdRaw).trim()
           : null;
 
-      rows.push({
-        symbol,
-        quantity,
-        costPerUnit: parseNumber(record[priceCol], "trade price"),
-        costCurrency: String(record[currencyCol] ?? "").trim().toUpperCase(),
-        purchasedAt: parsePurchasedAt(record[dateCol]),
-        fees: parseFees(record[commissionCol]),
-        externalTradeId,
+      const dateRaw = String(record[dateCol] ?? "").trim();
+      fills.push({
+        line,
+        order,
+        sortKey: sortKeyFromDate(dateRaw),
+        side,
+        row: {
+          symbol,
+          quantity,
+          costPerUnit: parseNumber(record[priceCol], "trade price"),
+          costCurrency: String(record[currencyCol] ?? "").trim().toUpperCase(),
+          purchasedAt: parsePurchasedAt(record[dateCol]),
+          fees: parseFees(record[commissionCol]),
+          externalTradeId,
+        },
       });
     } catch (e) {
       errors.push({
@@ -284,9 +305,10 @@ function parseTradeRecords(
         message: e instanceof Error ? e.message : "Invalid row",
       });
     }
-  }
+  });
 
-  return { rows, errors };
+  const netted = netFillsFifo(fills);
+  return { rows: netted.rows, errors: [...errors, ...netted.errors] };
 }
 
 export function parseIbkrTradesCsv(csvText: string): ParseResult {

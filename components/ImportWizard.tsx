@@ -55,7 +55,7 @@ function brokerCopy(
   if (broker === "ibkr") {
     return {
       title: "Select IBKR trades CSV(s)",
-      hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Select multiple exports if needed; buys become equity lots, sells are skipped.",
+      hint: "Flex/Activity Trades CSV, or Client Portal Transaction History. Select multiple date-range exports together so sells FIFO-net against buys; fully sold symbols are dropped. Non-trade rows (deposits, dividends, forex) are skipped.",
       assetLabel: "Symbol",
     };
   }
@@ -64,7 +64,7 @@ function brokerCopy(
   }
   return {
     title: "Select Crypto.com CSV(s)",
-    hint: "App: Accounts → History → Export. Select all date-range CSVs together so withdrawals/swaps FIFO-net against buys. Rewards/cashback are skipped; withdrawals and wallet swaps reduce open lots (transfer out of CDC). Import Binance Spot buys separately for coins that continue there — do not expect deposit rows.",
+    hint: "App: Accounts → History → Export. Exchange: Trade History. Select all date-range CSVs together so sells/withdrawals/swaps FIFO-net against buys. Rewards/cashback are skipped; withdrawals and wallet swaps reduce open lots (transfer out of CDC). Import Binance Spot buys separately for coins that continue there — do not expect deposit rows.",
     assetLabel: "Asset",
   };
 }

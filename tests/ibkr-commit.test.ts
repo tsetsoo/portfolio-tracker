@@ -54,10 +54,10 @@ describe("IBKR import commit", () => {
     ]);
     expect(lots).toEqual([
       {
-        quantity: 10,
+        quantity: 7,
         cost_per_unit: 150.25,
         cost_currency: "USD",
-        fees: 1,
+        fees: 0.7,
         external_trade_id: "TR-1001",
       },
       {
