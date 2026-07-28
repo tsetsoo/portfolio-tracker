@@ -82,6 +82,52 @@ describe("parseCryptoComTradesCsv", () => {
       symbol: "ETH",
       quantity: 0.5,
     });
+    expect(
+      result.errors.some((e) =>
+        /applied withdrawal:\s*1\.5 eth/i.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it("nets wallet swap debit/credit so converted assets leave inventory", () => {
+    const csv =
+      "Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash\n" +
+      "2025-01-01 10:00:00,Buy REN,REN,710,,,EUR,100,100,crypto_purchase,ren1\n" +
+      "2025-01-02 10:00:00,Balance Conversion,REN,-710,,,EUR,42,48,crypto_wallet_swap_debited,swap-d\n" +
+      "2025-01-02 10:00:00,Balance Conversion,USDC,47.57,,,EUR,44.54,51,crypto_wallet_swap_credited,swap-c\n";
+
+    const result = parseCryptoComTradesCsv(csv);
+    expect(result.rows.map((r) => r.symbol)).toEqual(["USDC"]);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "USDC",
+      quantity: 47.57,
+      costCurrency: "EUR",
+    });
+    expect(result.rows[0]!.costPerUnit).toBeCloseTo(44.54 / 47.57);
+    expect(
+      result.errors.some((e) => /closed position:\s*ren/i.test(e.message)),
+    ).toBe(true);
+    expect(
+      result.errors.some((e) =>
+        /applied withdrawal:\s*710 ren/i.test(e.message),
+      ),
+    ).toBe(true);
+  });
+
+  it("credits admin_wallet crypto so later disposals can net", () => {
+    const csv =
+      "Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash\n" +
+      "2025-01-01 10:00:00,Adjustment,ETHW,1.61,,,EUR,10,12,admin_wallet_credited,adj1\n" +
+      "2025-01-02 10:00:00,ETHW > USDC,ETHW,-1.61,USDC,2.3,EUR,2.3,2.5,crypto_exchange,ex1\n";
+
+    const result = parseCryptoComTradesCsv(csv);
+    expect(result.rows.map((r) => r.symbol)).toEqual(["USDC"]);
+    expect(
+      result.errors.some((e) => /sell exceeded/i.test(e.message)),
+    ).toBe(false);
+    expect(
+      result.errors.some((e) => /closed position:\s*ethw/i.test(e.message)),
+    ).toBe(true);
   });
 
   it("parses Exchange spot trades and nets sells FIFO", () => {

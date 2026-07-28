@@ -153,6 +153,7 @@ function pushSell(
   quantity: number,
   purchasedAt: string,
   externalTradeId: string,
+  disposition: "sell" | "withdrawal" = "sell",
 ): void {
   if (FIAT.has(symbol) || quantity <= 0) {
     return;
@@ -160,6 +161,7 @@ function pushSell(
   fills.push({
     ...meta,
     side: "SELL",
+    disposition,
     row: {
       symbol,
       quantity,
@@ -427,7 +429,76 @@ function parseAppExport(
             explicitId,
             `${purchasedAt}|${kind}|${symbol}|${amount}`,
           ),
+          "withdrawal",
         );
+        return;
+      }
+
+      if (kind === "crypto_wallet_swap_debited") {
+        const symbol = String(record[currencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const amount = parseNumber(record[amountCol], "amount");
+        if (FIAT.has(symbol)) {
+          errors.push({ line, message: "Skipped fiat wallet swap debit" });
+          return;
+        }
+        pushSell(
+          fills,
+          meta,
+          symbol,
+          Math.abs(amount),
+          purchasedAt,
+          tradeId(
+            "app",
+            explicitId,
+            `${purchasedAt}|${kind}|${symbol}|${amount}`,
+          ),
+          "withdrawal",
+        );
+        return;
+      }
+
+      if (
+        kind === "crypto_wallet_swap_credited" ||
+        kind === "admin_wallet_credited"
+      ) {
+        const symbol = String(record[currencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const amount = parseNumber(record[amountCol], "amount");
+        if (FIAT.has(symbol) || amount <= 0) {
+          errors.push({
+            line,
+            message: `Skipped ${kind}${FIAT.has(symbol) ? " fiat" : ""}`,
+          });
+          return;
+        }
+        if (!nativeCurrencyCol || !nativeAmountCol) {
+          throw new Error("Missing native currency/amount for wallet credit");
+        }
+        const costCurrency = String(record[nativeCurrencyCol] ?? "")
+          .trim()
+          .toUpperCase();
+        const nativeAmount = Math.abs(
+          parseNumber(record[nativeAmountCol], "native amount"),
+        );
+        if (!costCurrency || nativeAmount <= 0) {
+          throw new Error("Invalid native cost for wallet credit");
+        }
+        pushBuy(fills, meta, {
+          symbol,
+          quantity: amount,
+          costPerUnit: nativeAmount / amount,
+          costCurrency,
+          purchasedAt,
+          fees: 0,
+          externalTradeId: tradeId(
+            "app",
+            explicitId,
+            `${purchasedAt}|${kind}|${symbol}|${amount}|${nativeAmount}`,
+          ),
+        });
         return;
       }
 

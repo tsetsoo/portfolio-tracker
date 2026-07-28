@@ -146,6 +146,12 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
+@media (min-width: 720px) {
+  .counts {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
 .counts span {
   background: #f3f7f5;
   color: var(--muted);
@@ -159,6 +165,11 @@
 .counts strong {
   color: var(--ink);
   font: 600 18px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+}
+
+.noteLegend {
+  margin-top: 8px;
+  opacity: 0.9;
 }
 
 .tableScroll {

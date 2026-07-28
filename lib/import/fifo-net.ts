@@ -13,6 +13,8 @@ export type LotFill = {
   order: number;
   sortKey: string;
   side: "BUY" | "SELL";
+  /** How a SELL should be described in preview notes (default: sell). */
+  disposition?: "sell" | "withdrawal";
   row: LotRow;
 };
 
@@ -81,9 +83,11 @@ export function netFillsFifo(fills: LotFill[]): FifoNetResult {
         message: `Sell exceeded open quantity for ${symbol} (leftover ${remaining})`,
       });
     } else {
+      const label =
+        fill.disposition === "withdrawal" ? "withdrawal" : "sell";
       errors.push({
         line: fill.line,
-        message: `Applied sell: ${fill.row.quantity} ${symbol}`,
+        message: `Applied ${label}: ${fill.row.quantity} ${symbol}`,
       });
     }
   }

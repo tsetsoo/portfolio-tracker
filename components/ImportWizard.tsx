@@ -17,6 +17,7 @@ import type {
 import type { CryptoComImportPreview } from "@/lib/cryptocom/commit";
 import type { IbkrImportPreview } from "@/lib/ibkr/commit";
 import { combineCsvTexts } from "@/lib/import/combine-csv";
+import { summarizeImportNotes } from "@/lib/import/notes";
 
 import styles from "./ImportWizard.module.css";
 
@@ -39,11 +40,11 @@ const BINANCE_FORMAT_COPY: Record<
 > = {
   spot: {
     title: "Select Binance Spot Trade History CSV(s)",
-    hint: "Orders → Spot → Trade History → Export. Select multiple date-range exports to net sells correctly (FIFO).",
+    hint: "Orders → Spot → Trade History → Export. Select multiple date-range exports to net sells correctly (FIFO). Deposits/transfers are not in Spot history — import Spot buys for coins acquired on Binance; Crypto.com withdrawals should already zero the source side.",
   },
   "auto-invest": {
     title: "Select Binance Auto-Invest History CSV(s)",
-    hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units). Multiple files are combined.",
+    hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units). Multiple files are combined. This does not import deposits from other exchanges.",
   },
 };
 
@@ -63,7 +64,7 @@ function brokerCopy(
   }
   return {
     title: "Select Crypto.com CSV(s)",
-    hint: "App: Accounts → History → Export. Select multiple date-range CSVs to net sells correctly (FIFO); rewards skipped.",
+    hint: "App: Accounts → History → Export. Select all date-range CSVs together so withdrawals/swaps FIFO-net against buys. Rewards/cashback are skipped; withdrawals and wallet swaps reduce open lots (transfer out of CDC). Import Binance Spot buys separately for coins that continue there — do not expect deposit rows.",
     assetLabel: "Asset",
   };
 }
@@ -108,6 +109,7 @@ export function ImportWizard() {
   const [isPending, startTransition] = useTransition();
 
   const copy = brokerCopy(broker, binanceFormat);
+  const noteSummary = preview ? summarizeImportNotes(preview.errors) : null;
 
   function resetFile() {
     setPreview(null);
@@ -285,9 +287,23 @@ export function ImportWizard() {
             <span>
               <strong>{preview.duplicates.length}</strong> duplicates
             </span>
-            <span>
-              <strong>{preview.errors.length}</strong> skipped
-            </span>
+            {noteSummary && (
+              <>
+                <span>
+                  <strong>{noteSummary.netted}</strong> netted
+                </span>
+                <span>
+                  <strong>{noteSummary.closed}</strong> closed
+                </span>
+                <span>
+                  <strong>{noteSummary.skipped}</strong> skipped
+                </span>
+                <span>
+                  <strong>{noteSummary.warnings + noteSummary.other}</strong>{" "}
+                  warnings
+                </span>
+              </>
+            )}
           </div>
 
           {preview.toInsert.length > 0 ? (
@@ -327,9 +343,18 @@ export function ImportWizard() {
             <p className={styles.empty}>No new trades found in this file.</p>
           )}
 
-          {preview.errors.length > 0 && (
+          {preview.errors.length > 0 && noteSummary && (
             <details className={styles.errors}>
-              <summary>{preview.errors.length} skipped rows</summary>
+              <summary>
+                {preview.errors.length} notes ({noteSummary.netted} netted,{" "}
+                {noteSummary.closed} closed, {noteSummary.skipped} skipped,{" "}
+                {noteSummary.warnings + noteSummary.other} warnings)
+              </summary>
+              <p className={styles.noteLegend}>
+                Netted = sells/withdrawals applied to open lots. Closed =
+                position fully exited. Skipped = rewards/cashback ignored.
+                Warnings = sell exceeded inventory or invalid rows.
+              </p>
               <ul>
                 {preview.errors.map((error, index) => (
                   <li key={`${error.line}-${index}`}>
