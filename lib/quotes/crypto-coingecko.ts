@@ -23,6 +23,10 @@ const COINGECKO_IDS: Record<string, string> = {
   OP: "optimism",
   TON: "the-open-network",
   TRX: "tron",
+  STX: "blockstack",
+  INJ: "injective-protocol",
+  ETHW: "ethereum-pow-iou",
+  USDC: "usd-coin",
 };
 
 type CoinGeckoResponse = Record<string, Record<string, number>>;
