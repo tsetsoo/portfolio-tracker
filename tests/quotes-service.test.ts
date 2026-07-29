@@ -245,6 +245,37 @@ describe("quote service cache", () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("to=EUR");
   });
 
+  it("rejects a cached EUR crypto quote when preferredCurrency is USDT", async () => {
+    // Lot quote_currency is often USDT/CRO; CoinGecko caches EUR. Passing the
+    // lot currency as preferredCurrency forces a refetch every request.
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 98_400, "EUR", "2026-07-25T11:55:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 99_000, usd: 116_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getQuote("BTC", "crypto", { preferredCurrency: "USDT" }),
+    ).resolves.toMatchObject({ price: 99_000, currency: "EUR", stale: false });
+    expect(fetchImpl).toHaveBeenCalled();
+
+    fetchImpl.mockClear();
+    await expect(service.getQuote("BTC", "crypto")).resolves.toMatchObject({
+      price: 99_000,
+      currency: "EUR",
+      stale: false,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("ignores a cached USD quote when EUR is preferred and refetches", async () => {
     db.prepare(
       `INSERT INTO price_cache
