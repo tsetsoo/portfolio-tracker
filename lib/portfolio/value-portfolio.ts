@@ -126,7 +126,12 @@ export async function valuePortfolio(
       try {
         const quote = await getQuote(holding.symbol, holding.type, {
           force: opts.forceRefresh,
-          preferredCurrency: holding.quoteCurrency ?? undefined,
+          // CoinGecko always quotes in base currency; requiring the lot's
+          // quote (USDT/CRO/…) rejects the EUR cache and leaves crypto at €0.
+          preferredCurrency:
+            holding.type === "equity"
+              ? (holding.quoteCurrency ?? undefined)
+              : undefined,
         });
         quotes.set(holding.id, quote);
         pricesOutdated ||= quote.stale;

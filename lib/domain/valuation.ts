@@ -88,15 +88,25 @@ export function valueHolding(input: ValueHoldingInput): ValuedHolding {
   // Display avg cost in the portfolio's base currency so it is comparable
   // with the other base-currency columns (cost basis, value, P&L).
   if (avgCostPerUnit !== null && costCurrency !== null) {
-    avgCostPerUnit = convertAmount(
-      avgCostPerUnit,
-      costCurrency,
-      baseCurrency,
-      fxRates,
-    );
+    try {
+      avgCostPerUnit = convertAmount(
+        avgCostPerUnit,
+        costCurrency,
+        baseCurrency,
+        fxRates,
+      );
+    } catch {
+      avgCostPerUnit = null;
+    }
   }
 
-  const costBasisBase = costBasisBaseFromLots(lots, baseCurrency, fxRates);
+  // Exotic cost currencies (CRO, BNB, …) may lack FX; still show market value.
+  let costBasisBase: number | null = null;
+  try {
+    costBasisBase = costBasisBaseFromLots(lots, baseCurrency, fxRates);
+  } catch {
+    costBasisBase = null;
+  }
 
   if (holding.type === "manual") {
     const valueCurrency = holding.quoteCurrency ?? baseCurrency;

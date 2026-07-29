@@ -97,6 +97,20 @@ describe("parseBinanceTradesCsv", () => {
     expect(result.rows[0].fees).toBeCloseTo(0.15);
   });
 
+  it("gives unique trade ids to identical fills on the same timestamp", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee\n" +
+      "2021-02-23 14:32:01,AVAXUSDT,BUY,25.2991,0.98AVAX,24.793118USDT,0.00098AVAX\n" +
+      "2021-02-23 14:32:01,AVAXUSDT,BUY,25.2991,0.98AVAX,24.793118USDT,0.00098AVAX\n" +
+      "2021-02-23 14:32:01,AVAXUSDT,BUY,25.2991,0.98AVAX,24.793118USDT,0.00098AVAX\n";
+
+    const result = parseBinanceTradesCsv(csv);
+    expect(result.rows).toHaveLength(3);
+    const ids = result.rows.map((r) => r.externalTradeId);
+    expect(new Set(ids).size).toBe(3);
+    expect(result.rows.reduce((s, r) => s + r.quantity, 0)).toBeCloseTo(2.94);
+  });
+
   it("skips fiat-base pairs like EURUSDT", () => {
     const csv =
       "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +

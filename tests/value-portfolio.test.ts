@@ -197,6 +197,49 @@ describe("valuePortfolio", () => {
     });
   });
 
+  it("values crypto market price even when a lot cost currency lacks FX", async () => {
+    const db = makeDb();
+    db.exec(`
+      UPDATE settings SET base_currency = 'EUR' WHERE id = 1;
+      INSERT INTO holdings
+        (id, type, symbol, name, quote_currency, manual_value, notes, updated_at)
+      VALUES
+        ('btc-1', 'crypto', 'BTC', 'BTC', 'CRO', NULL, NULL, '2026-07-20');
+      INSERT INTO lots
+        (id, holding_id, quantity, cost_per_unit, cost_currency, purchased_at, fees)
+      VALUES
+        ('lot-eur', 'btc-1', 0.1, 50000, 'EUR', '2025-01-01', 0),
+        ('lot-cro', 'btc-1', 0.01, 100, 'CRO', '2025-02-01', 0);
+    `);
+
+    const getQuote: QuoteService["getQuote"] = vi.fn(async () => ({
+      price: 55893,
+      currency: "EUR",
+      stale: false,
+      fetchedAt: "2026-07-25T09:00:00.000Z",
+    }));
+    const getFxRate: QuoteService["getFxRate"] = vi.fn(async () => {
+      throw new Error("no CRO rate");
+    });
+
+    const valuation = await valuePortfolio(db, {
+      getQuote,
+      getFxRate,
+      now: () => new Date("2026-07-25T12:00:00.000Z"),
+    });
+
+    expect(getQuote).toHaveBeenCalledWith("BTC", "crypto", {
+      force: undefined,
+      preferredCurrency: undefined,
+    });
+    expect(valuation.holdings[0]).toMatchObject({
+      quantity: 0.11,
+      currentValueBase: 0.11 * 55893,
+      costBasisBase: null,
+      unrealizedPlBase: null,
+    });
+  });
+
   it("returns zero totals for an empty portfolio without quote calls", async () => {
     const db = makeDb();
     const getQuote: QuoteService["getQuote"] = vi.fn();

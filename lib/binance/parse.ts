@@ -199,6 +199,8 @@ function tradeIdFor(
     price: number;
     quantity: number;
     fee: number;
+    /** CSV line number — disambiguates identical fills at the same timestamp. */
+    line: number;
   },
 ): string {
   if (explicit) {
@@ -211,6 +213,7 @@ function tradeIdFor(
     parts.price,
     parts.quantity,
     parts.fee,
+    parts.line,
   ].join("|");
   const hash = createHash("sha1").update(material).digest("hex").slice(0, 16);
   return `binance:${hash}`;
@@ -371,6 +374,7 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
             price,
             quantity: executed.amount,
             fee: fees,
+            line,
           }),
         },
       });
@@ -424,6 +428,7 @@ function autoInvestTradeId(parts: {
   amount: number;
   quote: string;
   fee: number;
+  line: number;
 }): string {
   const material = [
     parts.date,
@@ -432,6 +437,7 @@ function autoInvestTradeId(parts: {
     parts.amount,
     parts.quote,
     parts.fee,
+    parts.line,
   ].join("|");
   const hash = createHash("sha1").update(material).digest("hex").slice(0, 16);
   return `binance-auto:${hash}`;
@@ -573,6 +579,7 @@ export function parseBinanceAutoInvestCsv(csvText: string): ParseResult {
           amount: spent.amount,
           quote,
           fee: fees,
+          line,
         }),
       });
     } catch (e) {
