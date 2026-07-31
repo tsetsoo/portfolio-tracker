@@ -4,9 +4,12 @@ import { fetchBtcBalance, resolveBtcTransaction } from "@/lib/wallets/btc";
 import { fetchEthBalance, resolveEthTransaction } from "@/lib/wallets/eth";
 import { classifyAmountMatch } from "@/lib/wallets/match";
 import {
+  attachBtcAddress,
+  consolidateBtcWallets,
   getOrCreateWallet,
   listPendingTransfers,
   listWallets,
+  updateAddressBalance,
   updateTransferResolution,
   updateWalletBalance,
 } from "@/lib/wallets/repo";
@@ -24,6 +27,7 @@ export async function scanWalletWithdrawals(
   db: Database.Database,
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<ScanWithdrawalsResult> {
+  consolidateBtcWallets(db);
   const pending = listPendingTransfers(db);
   const fetchImpl = options.fetchImpl ?? fetch;
   const touched = new Set<string>();
@@ -71,40 +75,23 @@ export async function scanWalletWithdrawals(
         else if (match.status === "mismatch") result.mismatched += 1;
         else if (match.status === "weak") result.weak += 1;
       } else {
-        // CDC batches many customer withdrawals into one tx. Closest-vout
-        // invents false wallets — only link to BTC addresses the user added.
-        const knownBtc = listWallets(db)
-          .filter((wallet) => wallet.chain === "btc")
-          .map((wallet) => wallet.address);
-        if (knownBtc.length === 0) {
-          updateTransferResolution(db, transfer.id, {
-            walletId: null,
-            onchainAmount: null,
-            onchainStatus: "unresolved",
-            notes:
-              "Add your Bitcoin address, then scan — batch txs cannot invent the destination",
-          });
-          result.unresolved += 1;
-          continue;
-        }
-
         const resolved = await resolveBtcTransaction(
           transfer.txHash,
           transfer.amount,
-          { fetchImpl, knownAddresses: knownBtc },
+          { fetchImpl },
         );
         if (!resolved) {
           updateTransferResolution(db, transfer.id, {
-            walletId: null,
+            walletId: transfer.walletId,
             onchainAmount: null,
             onchainStatus: "unresolved",
-            notes:
-              "No output to your tracked Bitcoin address in this transaction",
+            notes: "Transaction not found on Bitcoin",
           });
           result.unresolved += 1;
           continue;
         }
-        const wallet = getOrCreateWallet(db, "btc", resolved.address);
+        // Auto-discover receive address; fold into the single BTC wallet.
+        const wallet = attachBtcAddress(db, resolved.address);
         touched.add(wallet.id);
         const match =
           resolved.confidence === "mismatch"
@@ -119,7 +106,7 @@ export async function scanWalletWithdrawals(
           walletId: wallet.id,
           onchainAmount: resolved.amount,
           onchainStatus: status,
-          notes: match.notes ?? `Δ${resolved.deltaSats} sats`,
+          notes: match.notes ?? `Δ${resolved.deltaSats} sats · ${resolved.address}`,
         });
         result.resolved += 1;
         if (status === "matched") result.matched += 1;
@@ -160,10 +147,16 @@ export async function refreshWalletBalances(
     try {
       if (wallet.chain === "eth") {
         const balance = await fetchEthBalance(wallet.address, { fetchImpl });
+        updateAddressBalance(db, wallet.id, wallet.address, balance);
         updateWalletBalance(db, wallet.id, balance, "ETH", syncedAt);
       } else {
-        const balance = await fetchBtcBalance(wallet.address, { fetchImpl });
-        updateWalletBalance(db, wallet.id, balance, "BTC", syncedAt);
+        let total = 0;
+        for (const address of wallet.addresses) {
+          const balance = await fetchBtcBalance(address, { fetchImpl });
+          updateAddressBalance(db, wallet.id, address, balance);
+          total += balance;
+        }
+        updateWalletBalance(db, wallet.id, total, "BTC", syncedAt);
       }
       updated += 1;
     } catch {

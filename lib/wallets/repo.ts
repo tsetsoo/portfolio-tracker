@@ -36,11 +36,13 @@ type TransferRow = {
   notes: string | null;
 };
 
-function mapWallet(row: WalletRow): Wallet {
+function mapWallet(row: WalletRow, addresses: string[]): Wallet {
+  const list = addresses.length > 0 ? addresses : [row.address];
   return {
     id: row.id,
     chain: row.chain,
     address: row.address,
+    addresses: list,
     label: row.label,
     balance: row.balance,
     balanceAsset: row.balance_asset,
@@ -80,6 +82,51 @@ function normalizeTxHash(chain: WalletChain, txHash: string): string {
   return trimmed.toLowerCase();
 }
 
+function listAddressesForWallet(
+  db: Database.Database,
+  walletId: string,
+): string[] {
+  const rows = db
+    .prepare(
+      `SELECT address FROM wallet_addresses WHERE wallet_id = ? ORDER BY address`,
+    )
+    .all(walletId) as Array<{ address: string }>;
+  return rows.map((row) => row.address);
+}
+
+function ensureWalletAddress(
+  db: Database.Database,
+  walletId: string,
+  address: string,
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO wallet_addresses (id, wallet_id, address, balance)
+     VALUES (?, ?, ?, NULL)`,
+  ).run(crypto.randomUUID(), walletId, address);
+}
+
+function findWalletIdByAddress(
+  db: Database.Database,
+  address: string,
+): string | null {
+  const row = db
+    .prepare(`SELECT wallet_id AS walletId FROM wallet_addresses WHERE address = ?`)
+    .get(address) as { walletId: string } | undefined;
+  return row?.walletId ?? null;
+}
+
+function getWalletRow(
+  db: Database.Database,
+  id: string,
+): WalletRow | undefined {
+  return db
+    .prepare(
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+       FROM wallets WHERE id = ?`,
+    )
+    .get(id) as WalletRow | undefined;
+}
+
 export function listWallets(db: Database.Database): Wallet[] {
   const rows = db
     .prepare(
@@ -88,7 +135,7 @@ export function listWallets(db: Database.Database): Wallet[] {
        ORDER BY chain, address`,
     )
     .all() as WalletRow[];
-  return rows.map(mapWallet);
+  return rows.map((row) => mapWallet(row, listAddressesForWallet(db, row.id)));
 }
 
 export function listWalletTransfers(
@@ -138,19 +185,33 @@ export function getOrCreateWallet(
   address: string,
   label?: string | null,
 ): Wallet {
+  if (chain === "btc") {
+    return attachBtcAddress(db, address, label);
+  }
+
   const normalized = normalizeAddress(chain, address);
+  const byAddress = findWalletIdByAddress(db, normalized);
+  if (byAddress) {
+    const row = getWalletRow(db, byAddress);
+    if (row) return mapWallet(row, listAddressesForWallet(db, row.id));
+  }
+
   const existing = db
     .prepare(
       `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
        FROM wallets WHERE chain = ? AND address = ?`,
     )
     .get(chain, normalized) as WalletRow | undefined;
-  if (existing) return mapWallet(existing);
+  if (existing) {
+    ensureWalletAddress(db, existing.id, normalized);
+    return mapWallet(existing, listAddressesForWallet(db, existing.id));
+  }
 
   const wallet: Wallet = {
     id: crypto.randomUUID(),
     chain,
     address: normalized,
+    addresses: [normalized],
     label: label?.trim() || null,
     balance: null,
     balanceAsset: null,
@@ -162,7 +223,114 @@ export function getOrCreateWallet(
        (id, chain, address, label, balance, balance_asset, created_at, last_synced_at)
      VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL)`,
   ).run(wallet.id, wallet.chain, wallet.address, wallet.label, wallet.createdAt);
+  ensureWalletAddress(db, wallet.id, normalized);
   return wallet;
+}
+
+/**
+ * Auto-discovered and manual BTC receive addresses fold into one Bitcoin wallet
+ * (HD wallets generate a new address per deposit).
+ */
+export function attachBtcAddress(
+  db: Database.Database,
+  address: string,
+  label?: string | null,
+): Wallet {
+  const normalized = normalizeAddress("btc", address);
+  const existingId = findWalletIdByAddress(db, normalized);
+  if (existingId) {
+    const row = getWalletRow(db, existingId)!;
+    return mapWallet(row, listAddressesForWallet(db, row.id));
+  }
+
+  const btcWallets = db
+    .prepare(
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+       FROM wallets WHERE chain = 'btc' ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as WalletRow[];
+
+  if (btcWallets.length === 0) {
+    const wallet: Wallet = {
+      id: crypto.randomUUID(),
+      chain: "btc",
+      address: normalized,
+      addresses: [normalized],
+      label: label?.trim() || null,
+      balance: null,
+      balanceAsset: null,
+      createdAt: new Date().toISOString(),
+      lastSyncedAt: null,
+    };
+    db.prepare(
+      `INSERT INTO wallets
+         (id, chain, address, label, balance, balance_asset, created_at, last_synced_at)
+       VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL)`,
+    ).run(
+      wallet.id,
+      wallet.chain,
+      wallet.address,
+      wallet.label,
+      wallet.createdAt,
+    );
+    ensureWalletAddress(db, wallet.id, normalized);
+    return wallet;
+  }
+
+  // Merge any accidental extra BTC wallets into the oldest one, then attach.
+  const primary = btcWallets[0]!;
+  for (const extra of btcWallets.slice(1)) {
+    mergeWalletInto(db, extra.id, primary.id);
+  }
+  ensureWalletAddress(db, primary.id, normalized);
+  if (label?.trim() && !primary.label) {
+    db.prepare(`UPDATE wallets SET label = ? WHERE id = ?`).run(
+      label.trim(),
+      primary.id,
+    );
+  }
+  const row = getWalletRow(db, primary.id)!;
+  return mapWallet(row, listAddressesForWallet(db, row.id));
+}
+
+function mergeWalletInto(
+  db: Database.Database,
+  fromId: string,
+  intoId: string,
+): void {
+  if (fromId === intoId) return;
+  db.transaction(() => {
+    const addresses = listAddressesForWallet(db, fromId);
+    for (const address of addresses) {
+      // Move address: delete then insert to satisfy UNIQUE(address).
+      db.prepare(`DELETE FROM wallet_addresses WHERE wallet_id = ? AND address = ?`).run(
+        fromId,
+        address,
+      );
+      ensureWalletAddress(db, intoId, address);
+    }
+    db.prepare(
+      `UPDATE wallet_transfers SET wallet_id = ? WHERE wallet_id = ?`,
+    ).run(intoId, fromId);
+    db.prepare(`DELETE FROM wallets WHERE id = ?`).run(fromId);
+  })();
+}
+
+/** Collapse multiple BTC wallet rows into one (receive addresses preserved). */
+export function consolidateBtcWallets(db: Database.Database): Wallet | null {
+  const btcWallets = db
+    .prepare(
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+       FROM wallets WHERE chain = 'btc' ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as WalletRow[];
+  if (btcWallets.length === 0) return null;
+  const primary = btcWallets[0]!;
+  for (const extra of btcWallets.slice(1)) {
+    mergeWalletInto(db, extra.id, primary.id);
+  }
+  const row = getWalletRow(db, primary.id)!;
+  return mapWallet(row, listAddressesForWallet(db, row.id));
 }
 
 export function createManualWallet(
@@ -199,11 +367,23 @@ export function updateWalletBalance(
   ).run(balance, balanceAsset, syncedAt, id);
 }
 
+export function updateAddressBalance(
+  db: Database.Database,
+  walletId: string,
+  address: string,
+  balance: number,
+): void {
+  db.prepare(
+    `UPDATE wallet_addresses SET balance = ? WHERE wallet_id = ? AND address = ?`,
+  ).run(balance, walletId, address);
+}
+
 export function deleteWallet(db: Database.Database, id: string): void {
   db.transaction(() => {
     db.prepare(
       `UPDATE wallet_transfers SET wallet_id = NULL WHERE wallet_id = ?`,
     ).run(id);
+    db.prepare(`DELETE FROM wallet_addresses WHERE wallet_id = ?`).run(id);
     db.prepare(`DELETE FROM wallets WHERE id = ?`).run(id);
   })();
 }
@@ -295,6 +475,7 @@ export function clearWalletData(db: Database.Database): {
 } {
   const transfersDeleted = db.prepare("DELETE FROM wallet_transfers").run()
     .changes;
+  db.prepare("DELETE FROM wallet_addresses").run();
   const walletsDeleted = db.prepare("DELETE FROM wallets").run().changes;
   return { walletsDeleted, transfersDeleted };
 }

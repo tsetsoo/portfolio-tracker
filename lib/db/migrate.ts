@@ -107,10 +107,31 @@ export function migrate(db: Database.Database): void {
         CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
       notes TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS wallet_addresses (
+      id TEXT PRIMARY KEY,
+      wallet_id TEXT NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+      address TEXT NOT NULL,
+      balance REAL,
+      UNIQUE (wallet_id, address)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS wallet_addresses_address_uidx
+      ON wallet_addresses(address);
   `);
 
   // Existing DBs created before import_batch_id: add the column safely.
   if (hasColumn(db, "lots", "id") && !hasColumn(db, "lots", "import_batch_id")) {
     db.exec(`ALTER TABLE lots ADD COLUMN import_batch_id TEXT`);
+  }
+
+  // Backfill receive addresses for wallets created before wallet_addresses.
+  if (hasColumn(db, "wallets", "id") && hasColumn(db, "wallet_addresses", "id")) {
+    db.exec(`
+      INSERT OR IGNORE INTO wallet_addresses (id, wallet_id, address, balance)
+      SELECT lower(hex(randomblob(16))), id, address, balance
+      FROM wallets
+      WHERE address IS NOT NULL AND trim(address) != ''
+    `);
   }
 }

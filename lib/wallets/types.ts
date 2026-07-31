@@ -12,7 +12,10 @@ export type WalletTransferSource = "cryptocom" | "manual";
 export type Wallet = {
   id: string;
   chain: WalletChain;
+  /** Primary / display address (first discovered or manually added). */
   address: string;
+  /** All receive addresses belonging to this wallet (HD BTC may have many). */
+  addresses: string[];
   label: string | null;
   balance: number | null;
   balanceAsset: string | null;

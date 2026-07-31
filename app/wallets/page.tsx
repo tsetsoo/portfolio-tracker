@@ -61,9 +61,9 @@ export default function WalletsPage() {
           </span>
         </div>
         <p className="section-note">
-          Bitcoin: add your address first, then scan — Crypto.com batches many
-          withdrawals into one tx, so destinations are not auto-discovered.
-          Binance ledger withdrawals have no tx hashes and cannot be linked yet.
+          Scan discovers withdrawal destinations. Multiple Bitcoin receive
+          addresses are combined into one BTC wallet (balance summed). Binance
+          ledger withdrawals have no tx hashes and cannot be linked yet.
         </p>
         <WalletsManager
           wallets={walletItems}
