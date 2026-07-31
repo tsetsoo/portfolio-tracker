@@ -79,6 +79,34 @@ export function migrate(db: Database.Database): void {
       symbols_touched_json TEXT NOT NULL DEFAULT '[]',
       notes_json TEXT NOT NULL DEFAULT '[]'
     );
+
+    CREATE TABLE IF NOT EXISTS wallets (
+      id TEXT PRIMARY KEY,
+      chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+      address TEXT NOT NULL,
+      label TEXT,
+      balance REAL,
+      balance_asset TEXT,
+      created_at TEXT NOT NULL,
+      last_synced_at TEXT,
+      UNIQUE (chain, address)
+    );
+
+    CREATE TABLE IF NOT EXISTS wallet_transfers (
+      id TEXT PRIMARY KEY,
+      wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL,
+      chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+      asset TEXT NOT NULL,
+      amount REAL NOT NULL,
+      tx_hash TEXT NOT NULL UNIQUE,
+      transferred_at TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('cryptocom','manual')),
+      import_batch_id TEXT,
+      onchain_amount REAL,
+      onchain_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
+      notes TEXT
+    );
   `);
 
   // Existing DBs created before import_batch_id: add the column safely.

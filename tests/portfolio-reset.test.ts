@@ -6,6 +6,10 @@ import { createHolding } from "@/lib/holdings-repo";
 import { createImportBatch } from "@/lib/import/batches";
 import { resetPortfolioData } from "@/lib/portfolio/reset";
 import { getSettings, setBaseCurrency } from "@/lib/settings";
+import {
+  createManualWallet,
+  upsertWalletTransfersFromWithdrawals,
+} from "@/lib/wallets/repo";
 
 describe("resetPortfolioData", () => {
   let db: Database.Database;
@@ -20,7 +24,7 @@ describe("resetPortfolioData", () => {
     db.close();
   });
 
-  it("deletes holdings, lots, snapshots, and import batches but keeps settings and caches", () => {
+  it("deletes holdings, lots, snapshots, import batches, and wallets but keeps settings and caches", () => {
     setBaseCurrency(db, "GBP");
 
     const holding = createHolding(db, {
@@ -59,6 +63,18 @@ describe("resetPortfolioData", () => {
        VALUES (?, ?, ?, ?)`,
     ).run("USD", "GBP", 0.78, "2026-07-01T00:00:00.000Z");
 
+    createManualWallet(db, "eth", "0x1111111111111111111111111111111111111111");
+    upsertWalletTransfersFromWithdrawals(db, [
+      {
+        chain: "eth",
+        asset: "ETH",
+        amount: 1,
+        txHash:
+          "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        transferredAt: "2025-01-01",
+      },
+    ]);
+
     const result = resetPortfolioData(db);
 
     expect(result).toEqual({
@@ -66,6 +82,8 @@ describe("resetPortfolioData", () => {
       lotsDeleted: 1,
       snapshotsDeleted: 1,
       importBatchesDeleted: 1,
+      walletsDeleted: 1,
+      walletTransfersDeleted: 1,
     });
     expect(
       (db.prepare("SELECT COUNT(*) AS n FROM holdings").get() as { n: number })
@@ -81,6 +99,16 @@ describe("resetPortfolioData", () => {
     expect(
       (
         db.prepare("SELECT COUNT(*) AS n FROM import_batches").get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(0);
+    expect(
+      (db.prepare("SELECT COUNT(*) AS n FROM wallets").get() as { n: number }).n,
+    ).toBe(0);
+    expect(
+      (
+        db.prepare("SELECT COUNT(*) AS n FROM wallet_transfers").get() as {
           n: number;
         }
       ).n,

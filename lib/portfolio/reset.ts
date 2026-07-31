@@ -1,14 +1,18 @@
 import type Database from "better-sqlite3";
 
+import { clearWalletData } from "@/lib/wallets/repo";
+
 export type ResetPortfolioResult = {
   holdingsDeleted: number;
   lotsDeleted: number;
   snapshotsDeleted: number;
   importBatchesDeleted: number;
+  walletsDeleted: number;
+  walletTransfersDeleted: number;
 };
 
 /**
- * Wipes holdings, lots, net-worth snapshots, and import history.
+ * Wipes holdings, lots, net-worth snapshots, import history, and tracked wallets.
  * Keeps settings (base currency), price_cache, and fx_rates.
  */
 export function resetPortfolioData(
@@ -22,11 +26,15 @@ export function resetPortfolioData(
       .run().changes;
     const holdingsDeleted = db.prepare("DELETE FROM holdings").run().changes;
     const snapshotsDeleted = db.prepare("DELETE FROM snapshots").run().changes;
+    const { walletsDeleted, transfersDeleted: walletTransfersDeleted } =
+      clearWalletData(db);
     return {
       holdingsDeleted,
       lotsDeleted,
       snapshotsDeleted,
       importBatchesDeleted,
+      walletsDeleted,
+      walletTransfersDeleted,
     };
   })();
 }

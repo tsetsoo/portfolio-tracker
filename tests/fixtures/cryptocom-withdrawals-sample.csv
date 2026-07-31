@@ -1,0 +1,6 @@
+Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash
+2025-03-01 12:00:00,Buy ETH,ETH,1,,,EUR,2500.00,2700.00,crypto_purchase,hash-eth-buy-1
+2025-03-02 10:00:00,Withdraw ETH to wallet,ETH,-0.5,,,EUR,1250.00,1350.00,crypto_withdrawal,0xabc1111111111111111111111111111111111111111111111111111111111111
+2025-03-03 11:00:00,Withdraw BTC,BTC,-0.01,,,EUR,600.00,650.00,crypto_withdrawal,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+2025-03-04 12:00:00,Withdraw LINK ERC20,LINK,-25,,,EUR,300.00,325.00,crypto_withdrawal,0xlink222222222222222222222222222222222222222222222222222222222222
+2025-03-05 13:00:00,Withdraw AVAX,AVAX,-10,,,EUR,200.00,215.00,crypto_withdrawal,0xavax333333333333333333333333333333333333333333333333333333333333

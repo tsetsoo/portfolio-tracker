@@ -102,6 +102,8 @@ async function commitForBroker(
   rows: Preview["toInsert"],
   meta: ImportMetaInput,
   binanceFormat: BinanceImportFormat,
+  preview: Preview,
+  csvText: string,
 ): Promise<{ inserted: number }> {
   switch (broker) {
     case "ibkr":
@@ -111,8 +113,14 @@ async function commitForBroker(
         ...meta,
         sourceDetail: binanceFormat,
       });
-    case "cryptocom":
-      return commitCryptoComRows(rows as never, meta);
+    case "cryptocom": {
+      const cdcPreview = preview as CryptoComImportPreview;
+      return commitCryptoComRows(rows as never, {
+        ...meta,
+        csvText,
+        withdrawals: cdcPreview.withdrawals,
+      });
+    }
   }
 }
 
@@ -124,15 +132,20 @@ export function ImportWizard() {
   const [fileName, setFileName] = useState("");
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [importName, setImportName] = useState("");
+  const [csvText, setCsvText] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const copy = brokerCopy(broker, binanceFormat);
   const noteSummary = preview ? summarizeImportNotes(preview.errors) : null;
+  const withdrawalCount =
+    broker === "cryptocom" && preview && "withdrawals" in preview
+      ? preview.withdrawals.length
+      : 0;
   const canCommit =
     Boolean(preview) &&
-    (preview?.toInsert.length ?? 0) > 0 &&
+    ((preview?.toInsert.length ?? 0) > 0 || withdrawalCount > 0) &&
     importName.trim().length > 0;
 
   function resetFile() {
@@ -141,6 +154,7 @@ export function ImportWizard() {
     setFileName("");
     setFileNames([]);
     setImportName("");
+    setCsvText("");
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -185,6 +199,7 @@ export function ImportWizard() {
       try {
         const texts = await Promise.all(files.map((file) => file.text()));
         const combined = combineCsvTexts(texts);
+        setCsvText(combined);
         setPreview(await previewForBroker(broker, combined, binanceFormat));
       } catch (error) {
         setMessage(
@@ -195,7 +210,8 @@ export function ImportWizard() {
   }
 
   function confirmImport() {
-    if (!preview || preview.toInsert.length === 0 || !importName.trim()) return;
+    if (!preview || !importName.trim()) return;
+    if (preview.toInsert.length === 0 && withdrawalCount === 0) return;
 
     const notes = preview.errors.map((error) => error.message);
     const meta: ImportMetaInput = {
@@ -215,14 +231,23 @@ export function ImportWizard() {
           preview.toInsert,
           meta,
           binanceFormat,
+          preview,
+          csvText,
         );
+        const withdrawalNote =
+          withdrawalCount > 0
+            ? ` ${withdrawalCount} withdrawal${withdrawalCount === 1 ? "" : "s"} recorded for Wallets.`
+            : "";
         setMessage(
-          `${result.inserted} ${result.inserted === 1 ? "lot" : "lots"} imported as “${importName.trim()}”.`,
+          `${result.inserted} ${result.inserted === 1 ? "lot" : "lots"} imported as “${importName.trim()}”.${withdrawalNote}`,
         );
         setPreview({
           ...preview,
           duplicates: [...preview.duplicates, ...preview.toInsert],
           toInsert: [],
+          ...(broker === "cryptocom" && "withdrawals" in preview
+            ? { withdrawals: [] }
+            : {}),
         });
       } catch (error) {
         setMessage(

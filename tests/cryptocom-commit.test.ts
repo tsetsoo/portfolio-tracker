@@ -33,7 +33,9 @@ describe("Crypto.com import commit", () => {
     expect(preview.toInsert).toHaveLength(3);
     expect(commitCryptoComImport(db, preview.toInsert)).toEqual({
       inserted: 3,
+      withdrawalsUpserted: 0,
     });
+    expect(preview.withdrawals).toEqual([]);
 
     const holdings = db
       .prepare(

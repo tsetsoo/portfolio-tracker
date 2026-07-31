@@ -11,6 +11,7 @@ import {
   type ImportBroker,
   updateImportBatchSummary,
 } from "@/lib/import/batches";
+import type { CryptoComWithdrawalRow } from "@/lib/wallets/types";
 
 export type CommitImportMeta = {
   name: string;
@@ -21,6 +22,9 @@ export type CommitImportMeta = {
   closedCount?: number;
   skippedCount?: number;
   notes?: string[];
+  /** Crypto.com App CSV text — used to persist withdrawal tx hashes. */
+  csvText?: string;
+  withdrawals?: CryptoComWithdrawalRow[];
 };
 
 type TradeRow = IbkrTradeRow | BinanceTradeRow | CryptoComTradeRow;
@@ -66,11 +70,11 @@ export function commitImportWithBatch(
           .inserted;
         break;
       case "cryptocom":
-        inserted = commitCryptoComImport(
-          db,
-          rows as CryptoComTradeRow[],
-          options,
-        ).inserted;
+        inserted = commitCryptoComImport(db, rows as CryptoComTradeRow[], {
+          ...options,
+          csvText: meta.csvText,
+          withdrawals: meta.withdrawals,
+        }).inserted;
         break;
     }
 

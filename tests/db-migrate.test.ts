@@ -28,6 +28,8 @@ describe("migrate", () => {
         "fx_rates",
         "snapshots",
         "import_batches",
+        "wallets",
+        "wallet_transfers",
       ]),
     );
     const settings = db.prepare("SELECT base_currency FROM settings WHERE id = 1").get() as {

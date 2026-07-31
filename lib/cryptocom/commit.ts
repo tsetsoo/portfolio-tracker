@@ -5,12 +5,16 @@ import {
   type CryptoComTradeRow,
   type ParseResult,
 } from "@/lib/cryptocom/parse";
+import { extractCryptoComWithdrawals } from "@/lib/cryptocom/withdrawals";
 import { addLot, createHolding } from "@/lib/holdings-repo";
+import { upsertWalletTransfersFromWithdrawals } from "@/lib/wallets/repo";
+import type { CryptoComWithdrawalRow } from "@/lib/wallets/types";
 
 export type CryptoComImportPreview = {
   toInsert: CryptoComTradeRow[];
   duplicates: CryptoComTradeRow[];
   errors: ParseResult["errors"];
+  withdrawals: CryptoComWithdrawalRow[];
 };
 
 function hasTradeId(db: Database.Database, externalTradeId: string): boolean {
@@ -43,14 +47,23 @@ export function previewCryptoComImport(
     if (tradeId) seenTradeIds.add(tradeId);
   }
 
-  return { toInsert, duplicates, errors: parsed.errors };
+  return {
+    toInsert,
+    duplicates,
+    errors: parsed.errors,
+    withdrawals: extractCryptoComWithdrawals(csvText),
+  };
 }
 
 export function commitCryptoComImport(
   db: Database.Database,
   rows: CryptoComTradeRow[],
-  options: { importBatchId?: string | null } = {},
-): { inserted: number } {
+  options: {
+    importBatchId?: string | null;
+    withdrawals?: CryptoComWithdrawalRow[];
+    csvText?: string;
+  } = {},
+): { inserted: number; withdrawalsUpserted: number } {
   return db.transaction(() => {
     let inserted = 0;
 
@@ -91,6 +104,17 @@ export function commitCryptoComImport(
       inserted += 1;
     }
 
-    return { inserted };
+    const withdrawals =
+      options.withdrawals ??
+      (options.csvText
+        ? extractCryptoComWithdrawals(options.csvText)
+        : []);
+    const { upserted: withdrawalsUpserted } =
+      upsertWalletTransfersFromWithdrawals(db, withdrawals, {
+        importBatchId: options.importBatchId,
+        source: "cryptocom",
+      });
+
+    return { inserted, withdrawalsUpserted };
   })();
 }

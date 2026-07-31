@@ -6,6 +6,7 @@ import { SidebarNav } from "@/components/SidebarNav";
 const desktopLinks = [
   { href: "/", label: "Home" },
   { href: "/holdings", label: "Holdings" },
+  { href: "/wallets", label: "Wallets" },
   { href: "/import", label: "Import" },
   { href: "/settings", label: "Settings" },
 ];
@@ -13,6 +14,7 @@ const desktopLinks = [
 const mobileLinks = [
   { href: "/", label: "Home" },
   { href: "/holdings", label: "Holdings" },
+  { href: "/wallets", label: "Wallets" },
   { href: "/settings", label: "Settings" },
 ];
 

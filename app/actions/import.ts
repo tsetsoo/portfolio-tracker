@@ -99,10 +99,14 @@ export async function commitCryptoComRows(
       sourceDetail: meta.sourceDetail ?? "app",
     });
     revalidateImportPaths();
+    revalidatePath("/wallets");
     return result;
   }
-  const result = commitCryptoComImport(getDb(), rows);
+  const result = commitCryptoComImport(getDb(), rows, {
+    csvText: undefined,
+  });
   revalidateImportPaths();
+  revalidatePath("/wallets");
   return result;
 }
 
