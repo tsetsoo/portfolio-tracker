@@ -8,3 +8,6 @@ data/*.db-*
 .DS_Store
 .worktrees/
 tsconfig.tsbuildinfo
+
+.tmp-reimport/
+data/backups/
