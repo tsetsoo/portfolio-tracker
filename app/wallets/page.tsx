@@ -61,12 +61,16 @@ export default function WalletsPage() {
           </span>
         </div>
         <p className="section-note">
-          Binance ledger withdrawals have no tx hashes — they cannot be linked
-          until a withdrawal-history export with txids is available.
+          Bitcoin: add your address first, then scan — Crypto.com batches many
+          withdrawals into one tx, so destinations are not auto-discovered.
+          Binance ledger withdrawals have no tx hashes and cannot be linked yet.
         </p>
         <WalletsManager
           wallets={walletItems}
           transfersByWallet={transfersByWallet}
+          unlinkedTransfers={allTransfers.filter(
+            (transfer) => transfer.walletId == null,
+          )}
           pendingCount={pendingCount}
         />
       </section>

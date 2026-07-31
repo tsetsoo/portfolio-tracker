@@ -46,10 +46,12 @@ function formatQty(value: number | null | undefined): string {
 export function WalletsManager({
   wallets,
   transfersByWallet,
+  unlinkedTransfers = [],
   pendingCount,
 }: {
   wallets: WalletListItem[];
   transfersByWallet: Record<string, WalletTransfer[]>;
+  unlinkedTransfers?: WalletTransfer[];
   pendingCount: number;
 }) {
   const [message, setMessage] = useState("");
@@ -155,9 +157,9 @@ export function WalletsManager({
 
       {wallets.length === 0 ? (
         <p className="holdings-empty">
-          No tracked wallets yet. Import a Crypto.com history (to record
-          withdrawal tx hashes), then run Scan withdrawals — or add an address
-          manually.
+          No tracked wallets yet. Ethereum destinations are discovered on scan;
+          Bitcoin needs your address added first. Import Crypto.com history for
+          withdrawal tx hashes, then scan.
         </p>
       ) : (
         <div className="managed-holdings">
@@ -313,6 +315,60 @@ export function WalletsManager({
             );
           })}
         </div>
+      )}
+
+      {unlinkedTransfers.length > 0 && (
+        <details className="lots-disclosure" open>
+          <summary>
+            <span className="lots-summary-label">
+              Unlinked withdrawals
+              <em>
+                {unlinkedTransfers.length}{" "}
+                {unlinkedTransfers.length === 1 ? "transfer" : "transfers"}
+              </em>
+            </span>
+            <span className="lots-chevron" aria-hidden="true" />
+          </summary>
+          <div className="lots-scroll">
+            <table className="lots-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Chain</th>
+                  <th>Asset</th>
+                  <th className="numeric">CSV amt</th>
+                  <th>Status</th>
+                  <th>Tx</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unlinkedTransfers.map((transfer) => (
+                  <tr key={transfer.id}>
+                    <td>{transfer.transferredAt}</td>
+                    <td>{transfer.chain.toUpperCase()}</td>
+                    <td>{transfer.asset}</td>
+                    <td className="numeric">{formatQty(transfer.amount)}</td>
+                    <td className={statusClass(transfer.onchainStatus)}>
+                      {transfer.onchainStatus}
+                      {transfer.notes ? (
+                        <small className="muted"> · {transfer.notes}</small>
+                      ) : null}
+                    </td>
+                    <td>
+                      <a
+                        href={txExplorerUrl(transfer.chain, transfer.txHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        view
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
     </div>
   );

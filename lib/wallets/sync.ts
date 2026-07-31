@@ -71,17 +71,35 @@ export async function scanWalletWithdrawals(
         else if (match.status === "mismatch") result.mismatched += 1;
         else if (match.status === "weak") result.weak += 1;
       } else {
+        // CDC batches many customer withdrawals into one tx. Closest-vout
+        // invents false wallets — only link to BTC addresses the user added.
+        const knownBtc = listWallets(db)
+          .filter((wallet) => wallet.chain === "btc")
+          .map((wallet) => wallet.address);
+        if (knownBtc.length === 0) {
+          updateTransferResolution(db, transfer.id, {
+            walletId: null,
+            onchainAmount: null,
+            onchainStatus: "unresolved",
+            notes:
+              "Add your Bitcoin address, then scan — batch txs cannot invent the destination",
+          });
+          result.unresolved += 1;
+          continue;
+        }
+
         const resolved = await resolveBtcTransaction(
           transfer.txHash,
           transfer.amount,
-          { fetchImpl },
+          { fetchImpl, knownAddresses: knownBtc },
         );
         if (!resolved) {
           updateTransferResolution(db, transfer.id, {
-            walletId: transfer.walletId,
+            walletId: null,
             onchainAmount: null,
             onchainStatus: "unresolved",
-            notes: "Transaction not found on Bitcoin",
+            notes:
+              "No output to your tracked Bitcoin address in this transaction",
           });
           result.unresolved += 1;
           continue;
@@ -95,7 +113,6 @@ export async function scanWalletWithdrawals(
                 notes: `closest out Δ${resolved.deltaSats} sats`,
               }
             : classifyAmountMatch("btc", transfer.amount, resolved.amount);
-        // Prefer mempool confidence when weak
         const status =
           resolved.confidence === "weak" ? "weak" : match.status;
         updateTransferResolution(db, transfer.id, {

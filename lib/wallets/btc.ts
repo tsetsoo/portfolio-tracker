@@ -52,7 +52,12 @@ export function pickClosestBtcOutput(
 export async function resolveBtcTransaction(
   txHash: string,
   csvAmountBtc: number,
-  options: { fetchImpl?: typeof fetch; baseUrl?: string } = {},
+  options: {
+    fetchImpl?: typeof fetch;
+    baseUrl?: string;
+    /** When set, only outputs paying these addresses are considered (CDC batch txs). */
+    knownAddresses?: string[];
+  } = {},
 ): Promise<BtcTxResolution | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.baseUrl ?? MEMPOOL_BASE;
@@ -69,6 +74,16 @@ export async function resolveBtcTransaction(
       address: vout.scriptpubkey_address,
       valueSats: vout.value,
     }));
+
+  const known = (options.knownAddresses ?? [])
+    .map((address) => address.trim())
+    .filter(Boolean);
+  if (known.length > 0) {
+    const knownSet = new Set(known);
+    const toKnown = outputs.filter((out) => knownSet.has(out.address));
+    return pickClosestBtcOutput(csvAmountBtc, toKnown);
+  }
+
   return pickClosestBtcOutput(csvAmountBtc, outputs);
 }
 

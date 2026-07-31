@@ -52,4 +52,34 @@ describe("resolveBtcTransaction", () => {
       "https://mempool.test/api/tx/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
   });
+
+  it("only considers outputs to known addresses in batch txs", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        vout: [
+          { scriptpubkey_address: "bc1qother", value: 1_000_000 },
+          { scriptpubkey_address: "bc1qmine", value: 950_000 },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+
+    const resolved = await resolveBtcTransaction("bbbb", 0.01, {
+      fetchImpl,
+      baseUrl: "https://mempool.test/api",
+      knownAddresses: ["bc1qmine"],
+    });
+
+    expect(resolved).toMatchObject({
+      address: "bc1qmine",
+      amount: 0.0095,
+      confidence: "matched",
+    });
+
+    const missing = await resolveBtcTransaction("bbbb", 0.01, {
+      fetchImpl,
+      baseUrl: "https://mempool.test/api",
+      knownAddresses: ["bc1qunknown"],
+    });
+    expect(missing).toBeNull();
+  });
 });
