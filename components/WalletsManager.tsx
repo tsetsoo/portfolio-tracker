@@ -56,9 +56,10 @@ export function WalletsManager({
 }) {
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [chain, setChain] = useState<WalletChain>("eth");
-  const [address, setAddress] = useState("");
-  const [label, setLabel] = useState("");
+  const [ethAddress, setEthAddress] = useState("");
+  const [ethLabel, setEthLabel] = useState("");
+  const [btcAddress, setBtcAddress] = useState("");
+  const [btcLabel, setBtcLabel] = useState("");
 
   function run(action: () => Promise<string | void>) {
     startTransition(async () => {
@@ -111,49 +112,98 @@ export function WalletsManager({
 
       {message && <p className="form-message">{message}</p>}
 
-      <form
-        className="wallet-add-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          run(async () => {
-            await addWalletAction({ chain, address, label });
-            setAddress("");
-            setLabel("");
-            return "Wallet added.";
-          });
-        }}
-      >
-        <label>
-          Chain
-          <select
-            value={chain}
-            onChange={(event) => setChain(event.target.value as WalletChain)}
-          >
-            <option value="eth">Ethereum</option>
-            <option value="btc">Bitcoin</option>
-          </select>
-        </label>
-        <label className="wallet-address-field">
-          Address
-          <input
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder={chain === "eth" ? "0x…" : "bc1…"}
-            required
-          />
-        </label>
-        <label>
-          Label
-          <input
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="Optional"
-          />
-        </label>
-        <button type="submit" className="secondary-button" disabled={isPending}>
-          Add address
-        </button>
-      </form>
+      <section className="wallet-add-panel" aria-label="Add wallet addresses">
+        <div className="wallet-add-panel-heading">
+          <p className="eyebrow">Track manually</p>
+          <h3>Add ETH or BTC address</h3>
+          <p className="muted">
+            Use this for another Ethereum address, or your Bitcoin address before
+            scanning withdrawals.
+          </p>
+        </div>
+
+        <form
+          className="wallet-add-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(async () => {
+              await addWalletAction({
+                chain: "eth",
+                address: ethAddress,
+                label: ethLabel,
+              });
+              setEthAddress("");
+              setEthLabel("");
+              return "Ethereum address added.";
+            });
+          }}
+        >
+          <span className="wallet-add-chain">ETH</span>
+          <label className="wallet-address-field">
+            Ethereum address
+            <input
+              value={ethAddress}
+              onChange={(event) => setEthAddress(event.target.value)}
+              placeholder="0x…"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            Label
+            <input
+              value={ethLabel}
+              onChange={(event) => setEthLabel(event.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isPending}>
+            Add ETH
+          </button>
+        </form>
+
+        <form
+          className="wallet-add-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(async () => {
+              await addWalletAction({
+                chain: "btc",
+                address: btcAddress,
+                label: btcLabel,
+              });
+              setBtcAddress("");
+              setBtcLabel("");
+              return "Bitcoin address added.";
+            });
+          }}
+        >
+          <span className="wallet-add-chain">BTC</span>
+          <label className="wallet-address-field">
+            Bitcoin address
+            <input
+              value={btcAddress}
+              onChange={(event) => setBtcAddress(event.target.value)}
+              placeholder="bc1… or 1… / 3…"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            Label
+            <input
+              value={btcLabel}
+              onChange={(event) => setBtcLabel(event.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isPending}>
+            Add BTC
+          </button>
+        </form>
+      </section>
 
       {wallets.length === 0 ? (
         <p className="holdings-empty">
