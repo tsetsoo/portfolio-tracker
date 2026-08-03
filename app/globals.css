@@ -59,6 +59,9 @@ button {
   height: 66px;
   justify-content: space-between;
   padding: 0 18px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
 }
 
 .wordmark {
@@ -92,14 +95,28 @@ button {
 .mobile-nav {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+  justify-content: flex-end;
+  max-width: min(70vw, 280px);
+  position: relative;
+  z-index: 41;
 }
 
 .mobile-nav a {
   border: 1px solid transparent;
   color: #c8d3d5;
+  cursor: pointer;
   font-size: 12px;
+  min-height: 34px;
   padding: 7px 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.mobile-nav[data-pending="true"] a,
+.desktop-nav[data-pending="true"] a {
+  opacity: 0.7;
 }
 
 .mobile-nav a[aria-current="page"] {
@@ -1069,15 +1086,31 @@ button {
   margin-bottom: 14px;
 }
 
-.wallet-add-form {
+.wallet-add-panel {
+  border: 1px solid var(--line);
+  margin-bottom: 18px;
+  padding: 12px 12px 8px;
+}
+
+.wallet-add-form,
+.wallet-xpub-form {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(7rem, 8rem) minmax(12rem, 1.6fr) minmax(8rem, 1fr) auto;
-  margin-bottom: 18px;
+  grid-template-columns: auto minmax(12rem, 1.6fr) minmax(8rem, 1fr) auto;
+  margin-bottom: 10px;
 }
 
-.wallet-add-form label {
+.wallet-add-chain {
+  align-self: center;
+  color: var(--muted);
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.wallet-add-form label,
+.wallet-xpub-form label {
   color: var(--muted);
   display: grid;
   font-size: 11px;
@@ -1085,7 +1118,7 @@ button {
 }
 
 .wallet-add-form input,
-.wallet-add-form select {
+.wallet-xpub-form input {
   border: 1px solid var(--line);
   border-radius: 6px;
   font: inherit;
@@ -1095,6 +1128,13 @@ button {
 .wallet-address-field input {
   font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
   font-size: 12px;
+}
+
+.wallet-xpub-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0 0 6px;
+  max-width: 48rem;
 }
 
 .wallet-address-list {
@@ -1110,7 +1150,8 @@ button {
 }
 
 @media (max-width: 820px) {
-  .wallet-add-form {
+  .wallet-add-form,
+  .wallet-xpub-form {
     grid-template-columns: 1fr;
   }
 }

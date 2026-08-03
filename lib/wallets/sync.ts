@@ -4,11 +4,12 @@ import { fetchBtcBalance, resolveBtcTransaction } from "@/lib/wallets/btc";
 import { fetchEthBalance, resolveEthTransaction } from "@/lib/wallets/eth";
 import { classifyAmountMatch } from "@/lib/wallets/match";
 import {
-  attachBtcAddress,
-  consolidateBtcWallets,
+  getBtcXpubWallet,
   getOrCreateWallet,
+  listAddressesForWallet,
   listPendingTransfers,
   listWallets,
+  syncBtcDerivedAddresses,
   updateAddressBalance,
   updateTransferResolution,
   updateWalletBalance,
@@ -23,11 +24,28 @@ export type ScanWithdrawalsResult = {
   walletsTouched: number;
 };
 
+async function addressHasHistory(
+  address: string,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl(
+      `https://mempool.space/api/address/${address}`,
+    );
+    if (!response.ok) return false;
+    const body = (await response.json()) as {
+      chain_stats?: { tx_count?: number };
+    };
+    return (body.chain_stats?.tx_count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function scanWalletWithdrawals(
   db: Database.Database,
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<ScanWithdrawalsResult> {
-  consolidateBtcWallets(db);
   const pending = listPendingTransfers(db);
   const fetchImpl = options.fetchImpl ?? fetch;
   const touched = new Set<string>();
@@ -39,6 +57,19 @@ export async function scanWalletWithdrawals(
     unresolved: 0,
     walletsTouched: 0,
   };
+
+  const btcWallet = getBtcXpubWallet(db);
+  let btcKnown = new Set<string>();
+  if (btcWallet) {
+    // Advance gap limit using which derived addresses already have history.
+    const seed = new Set(listAddressesForWallet(db, btcWallet.id));
+    const used = new Set<string>();
+    for (const address of seed) {
+      if (await addressHasHistory(address, fetchImpl)) used.add(address);
+    }
+    const expanded = syncBtcDerivedAddresses(db, btcWallet.id, used);
+    btcKnown = new Set(expanded);
+  }
 
   for (const transfer of pending) {
     try {
@@ -75,24 +106,34 @@ export async function scanWalletWithdrawals(
         else if (match.status === "mismatch") result.mismatched += 1;
         else if (match.status === "weak") result.weak += 1;
       } else {
-        const resolved = await resolveBtcTransaction(
-          transfer.txHash,
-          transfer.amount,
-          { fetchImpl },
-        );
-        if (!resolved) {
+        if (!btcWallet || btcKnown.size === 0) {
           updateTransferResolution(db, transfer.id, {
-            walletId: transfer.walletId,
+            walletId: null,
             onchainAmount: null,
             onchainStatus: "unresolved",
-            notes: "Transaction not found on Bitcoin",
+            notes: "Add a Bitcoin xpub to link withdrawals to your wallet",
           });
           result.unresolved += 1;
           continue;
         }
-        // Auto-discover receive address; fold into the single BTC wallet.
-        const wallet = attachBtcAddress(db, resolved.address);
-        touched.add(wallet.id);
+
+        const resolved = await resolveBtcTransaction(
+          transfer.txHash,
+          transfer.amount,
+          { fetchImpl, knownAddresses: [...btcKnown] },
+        );
+        if (!resolved) {
+          updateTransferResolution(db, transfer.id, {
+            walletId: null,
+            onchainAmount: null,
+            onchainStatus: "unresolved",
+            notes: "No output to an address derived from your xpub",
+          });
+          result.unresolved += 1;
+          continue;
+        }
+
+        touched.add(btcWallet.id);
         const match =
           resolved.confidence === "mismatch"
             ? {
@@ -103,7 +144,7 @@ export async function scanWalletWithdrawals(
         const status =
           resolved.confidence === "weak" ? "weak" : match.status;
         updateTransferResolution(db, transfer.id, {
-          walletId: wallet.id,
+          walletId: btcWallet.id,
           onchainAmount: resolved.amount,
           onchainStatus: status,
           notes: match.notes ?? `Δ${resolved.deltaSats} sats · ${resolved.address}`,
@@ -150,8 +191,16 @@ export async function refreshWalletBalances(
         updateAddressBalance(db, wallet.id, wallet.address, balance);
         updateWalletBalance(db, wallet.id, balance, "ETH", syncedAt);
       } else {
+        let addresses = listAddressesForWallet(db, wallet.id);
+        if (wallet.xpub) {
+          const used = new Set<string>();
+          for (const address of addresses) {
+            if (await addressHasHistory(address, fetchImpl)) used.add(address);
+          }
+          addresses = syncBtcDerivedAddresses(db, wallet.id, used);
+        }
         let total = 0;
-        for (const address of wallet.addresses) {
+        for (const address of addresses) {
           const balance = await fetchBtcBalance(address, { fetchImpl });
           updateAddressBalance(db, wallet.id, address, balance);
           total += balance;

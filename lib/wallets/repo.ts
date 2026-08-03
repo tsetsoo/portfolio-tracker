@@ -9,6 +9,11 @@ import type {
   WalletTransfer,
   WalletTransferSource,
 } from "@/lib/wallets/types";
+import {
+  deriveBtcAddressWindow,
+  parseBtcXpub,
+  type BtcScriptType,
+} from "@/lib/wallets/xpub";
 
 type WalletRow = {
   id: string;
@@ -19,6 +24,8 @@ type WalletRow = {
   balance_asset: string | null;
   created_at: string;
   last_synced_at: string | null;
+  xpub: string | null;
+  script_type: BtcScriptType | null;
 };
 
 type TransferRow = {
@@ -43,6 +50,8 @@ function mapWallet(row: WalletRow, addresses: string[]): Wallet {
     chain: row.chain,
     address: row.address,
     addresses: list,
+    xpub: row.xpub,
+    scriptType: row.script_type,
     label: row.label,
     balance: row.balance,
     balanceAsset: row.balance_asset,
@@ -82,7 +91,7 @@ function normalizeTxHash(chain: WalletChain, txHash: string): string {
   return trimmed.toLowerCase();
 }
 
-function listAddressesForWallet(
+export function listAddressesForWallet(
   db: Database.Database,
   walletId: string,
 ): string[] {
@@ -98,11 +107,21 @@ function ensureWalletAddress(
   db: Database.Database,
   walletId: string,
   address: string,
+  meta?: { path?: string | null; isChange?: boolean },
 ): void {
   db.prepare(
-    `INSERT OR IGNORE INTO wallet_addresses (id, wallet_id, address, balance)
-     VALUES (?, ?, ?, NULL)`,
-  ).run(crypto.randomUUID(), walletId, address);
+    `INSERT INTO wallet_addresses (id, wallet_id, address, balance, derivation_path, is_change)
+     VALUES (?, ?, ?, NULL, ?, ?)
+     ON CONFLICT(wallet_id, address) DO UPDATE SET
+       derivation_path = COALESCE(excluded.derivation_path, wallet_addresses.derivation_path),
+       is_change = excluded.is_change`,
+  ).run(
+    crypto.randomUUID(),
+    walletId,
+    address,
+    meta?.path ?? null,
+    meta?.isChange ? 1 : 0,
+  );
 }
 
 function findWalletIdByAddress(
@@ -110,7 +129,9 @@ function findWalletIdByAddress(
   address: string,
 ): string | null {
   const row = db
-    .prepare(`SELECT wallet_id AS walletId FROM wallet_addresses WHERE address = ?`)
+    .prepare(
+      `SELECT wallet_id AS walletId FROM wallet_addresses WHERE address = ?`,
+    )
     .get(address) as { walletId: string } | undefined;
   return row?.walletId ?? null;
 }
@@ -121,7 +142,8 @@ function getWalletRow(
 ): WalletRow | undefined {
   return db
     .prepare(
-      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at,
+              xpub, script_type
        FROM wallets WHERE id = ?`,
     )
     .get(id) as WalletRow | undefined;
@@ -130,12 +152,28 @@ function getWalletRow(
 export function listWallets(db: Database.Database): Wallet[] {
   const rows = db
     .prepare(
-      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at,
+              xpub, script_type
        FROM wallets
        ORDER BY chain, address`,
     )
     .all() as WalletRow[];
   return rows.map((row) => mapWallet(row, listAddressesForWallet(db, row.id)));
+}
+
+export function getBtcXpubWallet(db: Database.Database): Wallet | null {
+  const row = db
+    .prepare(
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at,
+              xpub, script_type
+       FROM wallets
+       WHERE chain = 'btc' AND xpub IS NOT NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    )
+    .get() as WalletRow | undefined;
+  if (!row) return null;
+  return mapWallet(row, listAddressesForWallet(db, row.id));
 }
 
 export function listWalletTransfers(
@@ -186,7 +224,7 @@ export function getOrCreateWallet(
   label?: string | null,
 ): Wallet {
   if (chain === "btc") {
-    return attachBtcAddress(db, address, label);
+    throw new Error("Bitcoin wallets are managed via xpub, not raw addresses");
   }
 
   const normalized = normalizeAddress(chain, address);
@@ -198,7 +236,8 @@ export function getOrCreateWallet(
 
   const existing = db
     .prepare(
-      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at,
+              xpub, script_type
        FROM wallets WHERE chain = ? AND address = ?`,
     )
     .get(chain, normalized) as WalletRow | undefined;
@@ -207,130 +246,100 @@ export function getOrCreateWallet(
     return mapWallet(existing, listAddressesForWallet(db, existing.id));
   }
 
-  const wallet: Wallet = {
-    id: crypto.randomUUID(),
-    chain,
-    address: normalized,
-    addresses: [normalized],
-    label: label?.trim() || null,
-    balance: null,
-    balanceAsset: null,
-    createdAt: new Date().toISOString(),
-    lastSyncedAt: null,
-  };
+  const walletId = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
   db.prepare(
     `INSERT INTO wallets
-       (id, chain, address, label, balance, balance_asset, created_at, last_synced_at)
-     VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL)`,
-  ).run(wallet.id, wallet.chain, wallet.address, wallet.label, wallet.createdAt);
-  ensureWalletAddress(db, wallet.id, normalized);
-  return wallet;
+       (id, chain, address, label, balance, balance_asset, created_at, last_synced_at, xpub, script_type)
+     VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL)`,
+  ).run(
+    walletId,
+    chain,
+    normalized,
+    label?.trim() || null,
+    createdAt,
+  );
+  ensureWalletAddress(db, walletId, normalized);
+  return mapWallet(getWalletRow(db, walletId)!, [normalized]);
 }
 
 /**
- * Auto-discovered and manual BTC receive addresses fold into one Bitcoin wallet
- * (HD wallets generate a new address per deposit).
+ * Replace any existing BTC wallets with a single watch-only xpub account.
+ * Seeds derivation window (receive + change) using gap limit.
  */
-export function attachBtcAddress(
+export function setBtcXpubWallet(
   db: Database.Database,
-  address: string,
+  extendedKey: string,
   label?: string | null,
 ): Wallet {
-  const normalized = normalizeAddress("btc", address);
-  const existingId = findWalletIdByAddress(db, normalized);
-  if (existingId) {
-    const row = getWalletRow(db, existingId)!;
-    return mapWallet(row, listAddressesForWallet(db, row.id));
-  }
+  const parsed = parseBtcXpub(extendedKey);
 
-  const btcWallets = db
-    .prepare(
-      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
-       FROM wallets WHERE chain = 'btc' ORDER BY created_at ASC, id ASC`,
-    )
-    .all() as WalletRow[];
+  return db.transaction(() => {
+    const existingBtc = db
+      .prepare(`SELECT id FROM wallets WHERE chain = 'btc'`)
+      .all() as Array<{ id: string }>;
+    for (const row of existingBtc) {
+      db.prepare(
+        `UPDATE wallet_transfers SET wallet_id = NULL WHERE wallet_id = ?`,
+      ).run(row.id);
+      db.prepare(`DELETE FROM wallet_addresses WHERE wallet_id = ?`).run(row.id);
+      db.prepare(`DELETE FROM wallets WHERE id = ?`).run(row.id);
+    }
 
-  if (btcWallets.length === 0) {
-    const wallet: Wallet = {
-      id: crypto.randomUUID(),
-      chain: "btc",
-      address: normalized,
-      addresses: [normalized],
-      label: label?.trim() || null,
-      balance: null,
-      balanceAsset: null,
-      createdAt: new Date().toISOString(),
-      lastSyncedAt: null,
-    };
+    const walletId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
     db.prepare(
       `INSERT INTO wallets
-         (id, chain, address, label, balance, balance_asset, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL)`,
+         (id, chain, address, label, balance, balance_asset, created_at, last_synced_at, xpub, script_type)
+       VALUES (?, 'btc', ?, ?, NULL, NULL, ?, NULL, ?, ?)`,
     ).run(
-      wallet.id,
-      wallet.chain,
-      wallet.address,
-      wallet.label,
-      wallet.createdAt,
+      walletId,
+      parsed.firstReceive,
+      label?.trim() || null,
+      createdAt,
+      parsed.xpub,
+      parsed.scriptType,
     );
-    ensureWalletAddress(db, wallet.id, normalized);
-    return wallet;
-  }
 
-  // Merge any accidental extra BTC wallets into the oldest one, then attach.
-  const primary = btcWallets[0]!;
-  for (const extra of btcWallets.slice(1)) {
-    mergeWalletInto(db, extra.id, primary.id);
-  }
-  ensureWalletAddress(db, primary.id, normalized);
-  if (label?.trim() && !primary.label) {
-    db.prepare(`UPDATE wallets SET label = ? WHERE id = ?`).run(
-      label.trim(),
-      primary.id,
-    );
-  }
-  const row = getWalletRow(db, primary.id)!;
-  return mapWallet(row, listAddressesForWallet(db, row.id));
-}
-
-function mergeWalletInto(
-  db: Database.Database,
-  fromId: string,
-  intoId: string,
-): void {
-  if (fromId === intoId) return;
-  db.transaction(() => {
-    const addresses = listAddressesForWallet(db, fromId);
-    for (const address of addresses) {
-      // Move address: delete then insert to satisfy UNIQUE(address).
-      db.prepare(`DELETE FROM wallet_addresses WHERE wallet_id = ? AND address = ?`).run(
-        fromId,
-        address,
-      );
-      ensureWalletAddress(db, intoId, address);
+    const derived = deriveBtcAddressWindow(parsed.xpub, {
+      gapLimit: 20,
+      scriptType: parsed.scriptType,
+    });
+    for (const item of derived) {
+      ensureWalletAddress(db, walletId, item.address, {
+        path: item.path,
+        isChange: item.isChange,
+      });
     }
-    db.prepare(
-      `UPDATE wallet_transfers SET wallet_id = ? WHERE wallet_id = ?`,
-    ).run(intoId, fromId);
-    db.prepare(`DELETE FROM wallets WHERE id = ?`).run(fromId);
+
+    return mapWallet(
+      getWalletRow(db, walletId)!,
+      derived.map((item) => item.address),
+    );
   })();
 }
 
-/** Collapse multiple BTC wallet rows into one (receive addresses preserved). */
-export function consolidateBtcWallets(db: Database.Database): Wallet | null {
-  const btcWallets = db
-    .prepare(
-      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at
-       FROM wallets WHERE chain = 'btc' ORDER BY created_at ASC, id ASC`,
-    )
-    .all() as WalletRow[];
-  if (btcWallets.length === 0) return null;
-  const primary = btcWallets[0]!;
-  for (const extra of btcWallets.slice(1)) {
-    mergeWalletInto(db, extra.id, primary.id);
+/** Expand derivation window when addresses show usage (gap-limit advance). */
+export function syncBtcDerivedAddresses(
+  db: Database.Database,
+  walletId: string,
+  usedAddresses: Set<string>,
+): string[] {
+  const row = getWalletRow(db, walletId);
+  if (!row?.xpub || !row.script_type) return listAddressesForWallet(db, walletId);
+
+  const derived = deriveBtcAddressWindow(row.xpub, {
+    gapLimit: 20,
+    usedAddresses,
+    scriptType: row.script_type,
+  });
+  for (const item of derived) {
+    ensureWalletAddress(db, walletId, item.address, {
+      path: item.path,
+      isChange: item.isChange,
+    });
   }
-  const row = getWalletRow(db, primary.id)!;
-  return mapWallet(row, listAddressesForWallet(db, row.id));
+  return listAddressesForWallet(db, walletId);
 }
 
 export function createManualWallet(

@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 
 import {
-  addWalletAction,
+  addEthWalletAction,
   refreshBalancesAction,
   removeWalletAction,
   renameWalletAction,
   scanWithdrawalsAction,
+  setBtcXpubAction,
   type WalletListItem,
 } from "@/app/actions/wallets";
 import type { WalletChain, WalletTransfer } from "@/lib/wallets/types";
@@ -15,6 +16,11 @@ import type { WalletChain, WalletTransfer } from "@/lib/wallets/types";
 function shortAddress(address: string): string {
   if (address.length <= 16) return address;
   return `${address.slice(0, 8)}…${address.slice(-6)}`;
+}
+
+function shortXpub(xpub: string): string {
+  if (xpub.length <= 20) return xpub;
+  return `${xpub.slice(0, 10)}…${xpub.slice(-8)}`;
 }
 
 function explorerUrl(chain: WalletChain, address: string): string {
@@ -56,9 +62,14 @@ export function WalletsManager({
 }) {
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [chain, setChain] = useState<WalletChain>("eth");
-  const [address, setAddress] = useState("");
-  const [label, setLabel] = useState("");
+  const [ethAddress, setEthAddress] = useState("");
+  const [ethLabel, setEthLabel] = useState("");
+  const [xpub, setXpub] = useState("");
+  const [btcLabel, setBtcLabel] = useState("");
+
+  const hasBtcXpub = wallets.some(
+    (wallet) => wallet.chain === "btc" && wallet.xpub,
+  );
 
   function run(action: () => Promise<string | void>) {
     startTransition(async () => {
@@ -111,55 +122,96 @@ export function WalletsManager({
 
       {message && <p className="form-message">{message}</p>}
 
-      <form
-        className="wallet-add-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          run(async () => {
-            await addWalletAction({ chain, address, label });
-            setAddress("");
-            setLabel("");
-            return "Wallet added.";
-          });
-        }}
-      >
-        <label>
-          Chain
-          <select
-            value={chain}
-            onChange={(event) => setChain(event.target.value as WalletChain)}
-          >
-            <option value="eth">Ethereum</option>
-            <option value="btc">Bitcoin</option>
-          </select>
-        </label>
-        <label className="wallet-address-field">
-          Address
-          <input
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder={chain === "eth" ? "0x…" : "bc1…"}
-            required
-          />
-        </label>
-        <label>
-          Label
-          <input
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="Optional"
-          />
-        </label>
-        <button type="submit" className="secondary-button" disabled={isPending}>
-          Add address
-        </button>
-      </form>
+      <section className="wallet-add-panel" aria-label="Add wallets">
+        <form
+          className="wallet-add-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(async () => {
+              await addEthWalletAction({
+                address: ethAddress,
+                label: ethLabel,
+              });
+              setEthAddress("");
+              setEthLabel("");
+              return "Ethereum address added.";
+            });
+          }}
+        >
+          <span className="wallet-add-chain">ETH</span>
+          <label className="wallet-address-field">
+            Ethereum address
+            <input
+              value={ethAddress}
+              onChange={(event) => setEthAddress(event.target.value)}
+              placeholder="0x…"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            Label
+            <input
+              value={ethLabel}
+              onChange={(event) => setEthLabel(event.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isPending}>
+            Add ETH
+          </button>
+        </form>
+
+        <form
+          className="wallet-xpub-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(async () => {
+              await setBtcXpubAction({ xpub, label: btcLabel });
+              setXpub("");
+              setBtcLabel("");
+              return hasBtcXpub
+                ? "Bitcoin xpub replaced. Balances refreshing."
+                : "Bitcoin xpub saved. Balances refreshing.";
+            });
+          }}
+        >
+          <span className="wallet-add-chain">BTC</span>
+          <label className="wallet-address-field">
+            Account xpub / ypub / zpub
+            <input
+              value={xpub}
+              onChange={(event) => setXpub(event.target.value)}
+              placeholder="zpub… (native SegWit) or xpub… / ypub…"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            Label
+            <input
+              value={btcLabel}
+              onChange={(event) => setBtcLabel(event.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isPending}>
+            {hasBtcXpub ? "Replace xpub" : "Save xpub"}
+          </button>
+        </form>
+        <p className="muted wallet-xpub-hint">
+          Watch-only: paste the account extended public key from your wallet
+          software. Receive + change addresses are derived (gap limit 20). Never
+          paste a seed phrase.
+        </p>
+      </section>
 
       {wallets.length === 0 ? (
         <p className="holdings-empty">
-          No tracked wallets yet. Import Crypto.com history, then Scan
-          withdrawals — ETH and BTC destinations are discovered automatically.
-          Multiple BTC receive addresses are grouped into one Bitcoin wallet.
+          Add an Ethereum address and/or a Bitcoin xpub, import Crypto.com
+          history for withdrawal hashes, then Scan.
         </p>
       ) : (
         <div className="managed-holdings">
@@ -171,23 +223,31 @@ export function WalletsManager({
                   <div className="holding-identity">
                     <span>{wallet.chain.toUpperCase()}</span>
                     <p>
-                      <a
-                        href={explorerUrl(wallet.chain, wallet.address)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {wallet.label || shortAddress(wallet.address)}
-                      </a>
+                      {wallet.chain === "btc" && wallet.xpub ? (
+                        <span>
+                          {wallet.label || "Bitcoin (xpub)"}
+                        </span>
+                      ) : (
+                        <a
+                          href={explorerUrl(wallet.chain, wallet.address)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {wallet.label || shortAddress(wallet.address)}
+                        </a>
+                      )}
                     </p>
-                    {wallet.label && (
+                    {wallet.chain === "btc" && wallet.xpub ? (
                       <small className="muted">
-                        {shortAddress(wallet.address)}
+                        {wallet.scriptType ?? "xpub"} · {shortXpub(wallet.xpub)}{" "}
+                        · {wallet.addresses.length} derived
                       </small>
-                    )}
-                    {wallet.addresses.length > 1 && (
-                      <small className="muted">
-                        {wallet.addresses.length} receive addresses
-                      </small>
+                    ) : (
+                      wallet.label && (
+                        <small className="muted">
+                          {shortAddress(wallet.address)}
+                        </small>
+                      )
                     )}
                   </div>
                   <div className="managed-quantity">
@@ -253,11 +313,11 @@ export function WalletsManager({
                   </button>
                 </div>
 
-                {wallet.addresses.length > 1 && (
+                {wallet.addresses.length > 0 && wallet.chain === "btc" && (
                   <details className="lots-disclosure">
                     <summary>
                       <span className="lots-summary-label">
-                        Receive addresses
+                        Derived addresses
                         <em>{wallet.addresses.length}</em>
                       </span>
                       <span className="lots-chevron" aria-hidden="true" />

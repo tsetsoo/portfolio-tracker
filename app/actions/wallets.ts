@@ -9,6 +9,7 @@ import {
   deleteWallet,
   listWalletTransfers,
   listWallets,
+  setBtcXpubWallet,
   updateWalletLabel,
 } from "@/lib/wallets/repo";
 import {
@@ -67,28 +68,45 @@ export async function refreshBalancesAction(): Promise<{ updated: number }> {
   return { updated };
 }
 
-export async function addWalletAction(input: {
-  chain: WalletChain;
+export async function addEthWalletAction(input: {
   address: string;
   label?: string;
 }): Promise<Wallet> {
   const address = input.address.trim();
   if (!address) throw new Error("Address is required");
-  if (input.chain === "eth" && !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error("Invalid Ethereum address");
   }
-  if (
-    input.chain === "btc" &&
-    !/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/.test(address)
-  ) {
-    throw new Error("Invalid Bitcoin address");
+  const wallet = createManualWallet(getDb(), "eth", address, input.label ?? null);
+  try {
+    await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
+  } catch {
+    // Balance optional on add
   }
-  const wallet = createManualWallet(
-    getDb(),
-    input.chain,
-    address,
-    input.label ?? null,
-  );
+  revalidateWallets();
+  return wallet;
+}
+
+/** @deprecated use addEthWalletAction / setBtcXpubAction */
+export async function addWalletAction(input: {
+  chain: WalletChain;
+  address: string;
+  label?: string;
+}): Promise<Wallet> {
+  if (input.chain === "btc") {
+    throw new Error("Use setBtcXpubAction for Bitcoin (paste an xpub/zpub)");
+  }
+  return addEthWalletAction({
+    address: input.address,
+    label: input.label,
+  });
+}
+
+export async function setBtcXpubAction(input: {
+  xpub: string;
+  label?: string;
+}): Promise<Wallet> {
+  const wallet = setBtcXpubWallet(getDb(), input.xpub, input.label ?? null);
   try {
     await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
   } catch {

@@ -134,4 +134,25 @@ export function migrate(db: Database.Database): void {
       WHERE address IS NOT NULL AND trim(address) != ''
     `);
   }
+
+  if (hasColumn(db, "wallets", "id") && !hasColumn(db, "wallets", "xpub")) {
+    db.exec(`ALTER TABLE wallets ADD COLUMN xpub TEXT`);
+  }
+  if (hasColumn(db, "wallets", "id") && !hasColumn(db, "wallets", "script_type")) {
+    db.exec(`ALTER TABLE wallets ADD COLUMN script_type TEXT`);
+  }
+  if (
+    hasColumn(db, "wallet_addresses", "id") &&
+    !hasColumn(db, "wallet_addresses", "derivation_path")
+  ) {
+    db.exec(`ALTER TABLE wallet_addresses ADD COLUMN derivation_path TEXT`);
+  }
+  if (
+    hasColumn(db, "wallet_addresses", "id") &&
+    !hasColumn(db, "wallet_addresses", "is_change")
+  ) {
+    db.exec(
+      `ALTER TABLE wallet_addresses ADD COLUMN is_change INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 }

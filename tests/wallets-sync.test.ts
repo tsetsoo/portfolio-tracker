@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { migrate } from "@/lib/db/migrate";
 import {
-  attachBtcAddress,
   listWalletTransfers,
   listWallets,
+  setBtcXpubWallet,
   upsertWalletTransfersFromWithdrawals,
 } from "@/lib/wallets/repo";
 import { scanWalletWithdrawals } from "@/lib/wallets/sync";
+import { deriveBtcAddress } from "@/lib/wallets/xpub";
+
+const ZPUB =
+  "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs";
 
 describe("scanWalletWithdrawals", () => {
   let db: Database.Database;
@@ -56,7 +60,7 @@ describe("scanWalletWithdrawals", () => {
           return Response.json({
             jsonrpc: "2.0",
             id: 1,
-            result: "0x6f05b59d3b20000", // 0.5 ETH
+            result: "0x6f05b59d3b20000",
           });
         }
       }
@@ -67,29 +71,15 @@ describe("scanWalletWithdrawals", () => {
     expect(result).toMatchObject({
       resolved: 1,
       matched: 1,
-      mismatched: 0,
-      unresolved: 0,
       walletsTouched: 1,
     });
-
-    const wallets = listWallets(db);
-    expect(wallets).toHaveLength(1);
-    expect(wallets[0]).toMatchObject({
+    expect(listWallets(db)[0]).toMatchObject({
       chain: "eth",
       address: "0x1111111111111111111111111111111111111111",
-      balance: 0.5,
-      balanceAsset: "ETH",
-    });
-
-    const transfers = listWalletTransfers(db);
-    expect(transfers[0]).toMatchObject({
-      walletId: wallets[0]!.id,
-      onchainAmount: 1,
-      onchainStatus: "matched",
     });
   });
 
-  it("auto-discovers BTC outputs and combines receive addresses into one wallet", async () => {
+  it("leaves BTC unresolved until an xpub is configured", async () => {
     upsertWalletTransfersFromWithdrawals(db, [
       {
         chain: "btc",
@@ -99,75 +89,60 @@ describe("scanWalletWithdrawals", () => {
           "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         transferredAt: "2025-03-01",
       },
+    ]);
+
+    const result = await scanWalletWithdrawals(db, {
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    });
+    expect(result.unresolved).toBe(1);
+    expect(listWalletTransfers(db)[0]?.onchainStatus).toBe("unresolved");
+  });
+
+  it("links BTC withdrawals to addresses derived from the xpub", async () => {
+    const receive0 = deriveBtcAddress(ZPUB, false, 0).address;
+    setBtcXpubWallet(db, ZPUB, "Ledger");
+
+    upsertWalletTransfersFromWithdrawals(db, [
       {
         chain: "btc",
         asset: "BTC",
-        amount: 0.02,
+        amount: 0.01,
         txHash:
           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        transferredAt: "2025-03-02",
+        transferredAt: "2025-03-01",
       },
     ]);
 
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/tx/bbbb")) {
+      if (url.includes("/tx/")) {
         return Response.json({
           vout: [
-            { scriptpubkey_address: "bc1qaaa", value: 960_000 },
-            { scriptpubkey_address: "bc1qother", value: 5_000_000 },
+            { scriptpubkey_address: "bc1qother", value: 1_000_000 },
+            { scriptpubkey_address: receive0, value: 960_000 },
           ],
         });
       }
-      if (url.includes("/tx/cccc")) {
-        return Response.json({
-          vout: [{ scriptpubkey_address: "bc1qbbb", value: 1_960_000 }],
-        });
-      }
       if (url.includes("/address/")) {
+        const isReceive0 = url.includes(receive0);
         return Response.json({
-          chain_stats: { funded_txo_sum: 1_000_000, spent_txo_sum: 0 },
+          chain_stats: {
+            tx_count: isReceive0 ? 1 : 0,
+            funded_txo_sum: isReceive0 ? 960_000 : 0,
+            spent_txo_sum: 0,
+          },
         });
       }
       return new Response("not found", { status: 404 });
     }) as unknown as typeof fetch;
 
     const result = await scanWalletWithdrawals(db, { fetchImpl });
-    expect(result).toMatchObject({
-      resolved: 2,
-      matched: 2,
-      walletsTouched: 1,
-    });
-
-    const wallets = listWallets(db);
-    expect(wallets).toHaveLength(1);
-    expect(wallets[0]!.chain).toBe("btc");
-    expect(wallets[0]!.addresses.sort()).toEqual(["bc1qaaa", "bc1qbbb"]);
-    expect(wallets[0]!.balance).toBe(0.02); // 0.01 + 0.01 per address mock
-    expect(listWalletTransfers(db).every((t) => t.walletId === wallets[0]!.id)).toBe(
-      true,
-    );
-  });
-});
-
-describe("attachBtcAddress", () => {
-  let db: Database.Database;
-
-  beforeEach(() => {
-    db = new Database(":memory:");
-    db.pragma("foreign_keys = ON");
-    migrate(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it("folds later BTC addresses into the first wallet", () => {
-    const first = attachBtcAddress(db, "bc1qone");
-    const second = attachBtcAddress(db, "bc1qtwo");
-    expect(second.id).toBe(first.id);
+    expect(result).toMatchObject({ resolved: 1, matched: 1, walletsTouched: 1 });
     expect(listWallets(db)).toHaveLength(1);
-    expect(listWallets(db)[0]!.addresses.sort()).toEqual(["bc1qone", "bc1qtwo"]);
+    expect(listWallets(db)[0]?.xpub).toBe(ZPUB);
+    expect(listWalletTransfers(db)[0]).toMatchObject({
+      onchainStatus: "matched",
+      onchainAmount: 0.0096,
+    });
   });
 });

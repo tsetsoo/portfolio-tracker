@@ -61,9 +61,9 @@ export default function WalletsPage() {
           </span>
         </div>
         <p className="section-note">
-          Scan discovers withdrawal destinations. Multiple Bitcoin receive
-          addresses are combined into one BTC wallet (balance summed). Binance
-          ledger withdrawals have no tx hashes and cannot be linked yet.
+          Bitcoin is watch-only via account xpub (receive + change). Ethereum
+          still uses a normal address. Scan links Crypto.com withdrawal hashes
+          to derived BTC addresses. Binance ledger CSVs have no txids yet.
         </p>
         <WalletsManager
           wallets={walletItems}

@@ -12,10 +12,13 @@ export type WalletTransferSource = "cryptocom" | "manual";
 export type Wallet = {
   id: string;
   chain: WalletChain;
-  /** Primary / display address (first discovered or manually added). */
+  /** Primary / display address (first receive, or ETH address). */
   address: string;
-  /** All receive addresses belonging to this wallet (HD BTC may have many). */
+  /** Derived / known addresses for this wallet. */
   addresses: string[];
+  /** Watch-only account xpub/ypub/zpub for BTC. */
+  xpub: string | null;
+  scriptType: "p2wpkh" | "p2sh-p2wpkh" | "p2pkh" | null;
   label: string | null;
   balance: number | null;
   balanceAsset: string | null;
