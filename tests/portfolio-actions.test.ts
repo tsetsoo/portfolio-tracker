@@ -19,6 +19,34 @@ vi.mock("@/lib/portfolio/value-portfolio", () => ({
   valuePortfolio: mocks.valuePortfolio,
 }));
 
+vi.mock("@/lib/portfolio/page-data", () => ({
+  loadDashboardPageData: vi.fn().mockResolvedValue({
+    valuation: {
+      baseCurrency: "EUR",
+      totalBase: 0,
+      totalCostBase: 0,
+      unrealizedPlBase: 0,
+      holdings: [],
+      pricesOutdated: false,
+      asOf: "2026-07-25T10:00:00.000Z",
+    },
+    snapshots: [],
+    profitLossPct: null,
+  }),
+  loadHoldingsPageData: vi.fn().mockResolvedValue({
+    valuation: {
+      baseCurrency: "EUR",
+      totalBase: 0,
+      totalCostBase: 0,
+      unrealizedPlBase: 0,
+      holdings: [],
+      pricesOutdated: false,
+      asOf: "2026-07-25T10:00:00.000Z",
+    },
+    lotsByHolding: {},
+  }),
+}));
+
 vi.mock("@/lib/holdings-repo", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/holdings-repo")>();

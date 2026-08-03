@@ -1,3 +1,5 @@
+"use client";
+
 import {
   deleteHoldingAction,
   updateManualValueAction,
@@ -10,6 +12,7 @@ interface HoldingsManagerProps {
   holdings: ValuedHolding[];
   lotsByHolding: Record<string, Lot[]>;
   currency: string;
+  onMutated?: () => void;
 }
 
 function formatQuantity(value: number): string {
@@ -37,6 +40,7 @@ export function HoldingsManager({
   holdings,
   lotsByHolding,
   currency,
+  onMutated,
 }: HoldingsManagerProps) {
   if (holdings.length === 0) {
     return (
@@ -79,7 +83,10 @@ export function HoldingsManager({
             <div className="managed-holding-actions">
               {item.holding.type === "manual" && (
                 <form
-                  action={updateManualValueAction}
+                  action={async (formData) => {
+                    await updateManualValueAction(formData);
+                    onMutated?.();
+                  }}
                   className="manual-value-form"
                 >
                   <input
@@ -102,7 +109,13 @@ export function HoldingsManager({
                   </button>
                 </form>
               )}
-              <form action={deleteHoldingAction} className="delete-holding-form">
+              <form
+                action={async (formData) => {
+                  await deleteHoldingAction(formData);
+                  onMutated?.();
+                }}
+                className="delete-holding-form"
+              >
                 <input type="hidden" name="holdingId" value={item.holding.id} />
                 <button type="submit" className="danger-button">
                   Delete

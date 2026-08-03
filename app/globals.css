@@ -136,6 +136,24 @@ button {
   min-width: 0;
 }
 
+.page-loading {
+  color: var(--muted);
+  padding: 28px 0;
+}
+
+.page-load-error {
+  background: #f8ecec;
+  border: 1px solid #e2bcbc;
+  color: var(--loss);
+  margin-bottom: 16px;
+  padding: 10px 12px;
+}
+
+nav[data-pending="true"] a {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .dashboard {
   margin: 0 auto;
   max-width: 1200px;

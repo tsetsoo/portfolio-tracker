@@ -10,12 +10,28 @@ import {
   deleteHolding as deleteHoldingFromRepo,
   updateManualValue as updateManualValueInRepo,
 } from "@/lib/holdings-repo";
+import {
+  loadDashboardPageData,
+  loadHoldingsPageData,
+  type DashboardPageData,
+  type HoldingsPageData,
+} from "@/lib/portfolio/page-data";
 import { valuePortfolio } from "@/lib/portfolio/value-portfolio";
 import type {
   CreateHoldingInput,
   CreateLotInput,
 } from "@/lib/holdings-repo";
 import { normalizeCurrencyCode } from "@/lib/settings";
+
+export type { DashboardPageData, HoldingsPageData };
+
+export async function loadDashboardData(): Promise<DashboardPageData> {
+  return loadDashboardPageData(getDb());
+}
+
+export async function loadHoldingsData(): Promise<HoldingsPageData> {
+  return loadHoldingsPageData(getDb());
+}
 
 export async function createHolding(
   input: CreateHoldingInput,

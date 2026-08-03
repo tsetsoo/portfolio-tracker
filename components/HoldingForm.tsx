@@ -1,14 +1,26 @@
+"use client";
+
 import {
   addCryptoHolding,
   addManualHolding,
 } from "@/app/actions/portfolio";
 
-export function HoldingForm() {
+export function HoldingForm({
+  onMutated,
+}: {
+  onMutated?: () => void;
+} = {}) {
   const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="holding-forms">
-      <form action={addCryptoHolding} className="asset-form">
+      <form
+        action={async (formData) => {
+          await addCryptoHolding(formData);
+          onMutated?.();
+        }}
+        className="asset-form"
+      >
         <div className="form-heading">
           <p className="eyebrow">Market priced</p>
           <h2>Add crypto</h2>
@@ -66,7 +78,13 @@ export function HoldingForm() {
         </button>
       </form>
 
-      <form action={addManualHolding} className="asset-form">
+      <form
+        action={async (formData) => {
+          await addManualHolding(formData);
+          onMutated?.();
+        }}
+        className="asset-form"
+      >
         <div className="form-heading">
           <p className="eyebrow">Entered by you</p>
           <h2>Add manual asset</h2>
