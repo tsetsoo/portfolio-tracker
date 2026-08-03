@@ -1,4 +1,4 @@
-export type WalletChain = "eth" | "btc";
+export type WalletChain = "eth" | "btc" | "bch";
 
 export type OnchainStatus =
   | "pending"

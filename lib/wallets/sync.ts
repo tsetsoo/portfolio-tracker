@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 
+import { fetchBchBalance } from "@/lib/wallets/bch";
 import { fetchBtcBalance, resolveBtcTransaction } from "@/lib/wallets/btc";
 import { fetchEthBalance, resolveEthTransaction } from "@/lib/wallets/eth";
 import { classifyAmountMatch } from "@/lib/wallets/match";
@@ -190,6 +191,10 @@ export async function refreshWalletBalances(
         const balance = await fetchEthBalance(wallet.address, { fetchImpl });
         updateAddressBalance(db, wallet.id, wallet.address, balance);
         updateWalletBalance(db, wallet.id, balance, "ETH", syncedAt);
+      } else if (wallet.chain === "bch") {
+        const balance = await fetchBchBalance(wallet.address, { fetchImpl });
+        updateAddressBalance(db, wallet.id, wallet.address, balance);
+        updateWalletBalance(db, wallet.id, balance, "BCH", syncedAt);
       } else {
         let addresses = listAddressesForWallet(db, wallet.id);
         if (wallet.xpub) {

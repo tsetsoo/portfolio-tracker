@@ -90,4 +90,62 @@ describe("migrate", () => {
     migrate(db);
     db.close();
   });
+
+  it("widens wallet chain checks to allow BCH on older databases", () => {
+    const file = path.join(os.tmpdir(), `pt-bch-${Date.now()}.db`);
+    tmpFiles.push(file);
+    const db = new Database(file);
+    db.exec(`
+      CREATE TABLE wallets (
+        id TEXT PRIMARY KEY,
+        chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+        address TEXT NOT NULL,
+        label TEXT,
+        balance REAL,
+        balance_asset TEXT,
+        created_at TEXT NOT NULL,
+        last_synced_at TEXT,
+        UNIQUE (chain, address)
+      );
+      CREATE TABLE wallet_transfers (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL,
+        chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+        asset TEXT NOT NULL,
+        amount REAL NOT NULL,
+        tx_hash TEXT NOT NULL UNIQUE,
+        transferred_at TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('cryptocom','manual')),
+        import_batch_id TEXT,
+        onchain_amount REAL,
+        onchain_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
+        notes TEXT
+      );
+      CREATE TABLE wallet_addresses (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+        address TEXT NOT NULL,
+        balance REAL,
+        UNIQUE (wallet_id, address)
+      );
+      INSERT INTO wallets (id, chain, address, created_at)
+      VALUES ('w1', 'eth', '0xabc', '2026-01-01');
+    `);
+
+    migrate(db);
+
+    expect(() => {
+      db.prepare(
+        `INSERT INTO wallets (id, chain, address, created_at)
+         VALUES ('w2', 'bch', 'bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a', '2026-01-02')`,
+      ).run();
+    }).not.toThrow();
+
+    const eth = db
+      .prepare(`SELECT chain FROM wallets WHERE id = 'w1'`)
+      .get() as { chain: string };
+    expect(eth.chain).toBe("eth");
+    db.close();
+  });
 });

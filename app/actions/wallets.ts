@@ -18,6 +18,7 @@ import {
   type ScanWithdrawalsResult,
 } from "@/lib/wallets/sync";
 import type { Wallet, WalletChain, WalletTransfer } from "@/lib/wallets/types";
+import { isValidBchAddress, normalizeBchAddress } from "@/lib/wallets/bch";
 import {
   resolveBtcScriptType,
   type BtcScriptType,
@@ -82,6 +83,25 @@ export async function addEthWalletAction(input: {
     throw new Error("Invalid Ethereum address");
   }
   const wallet = createManualWallet(getDb(), "eth", address, input.label ?? null);
+  try {
+    await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
+  } catch {
+    // Balance optional on add
+  }
+  revalidateWallets();
+  return wallet;
+}
+
+export async function addBchWalletAction(input: {
+  address: string;
+  label?: string;
+}): Promise<Wallet> {
+  const address = normalizeBchAddress(input.address);
+  if (!address) throw new Error("Address is required");
+  if (!isValidBchAddress(address)) {
+    throw new Error("Invalid Bitcoin Cash address");
+  }
+  const wallet = createManualWallet(getDb(), "bch", address, input.label ?? null);
   try {
     await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
   } catch {

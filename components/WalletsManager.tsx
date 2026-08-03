@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 
 import {
+  addBchWalletAction,
   addEthWalletAction,
   refreshBalancesAction,
   removeWalletAction,
@@ -25,15 +26,19 @@ function shortXpub(xpub: string): string {
 }
 
 function explorerUrl(chain: WalletChain, address: string): string {
-  return chain === "eth"
-    ? `https://etherscan.io/address/${address}`
-    : `https://mempool.space/address/${address}`;
+  if (chain === "eth") return `https://etherscan.io/address/${address}`;
+  if (chain === "bch") {
+    return `https://blockchair.com/bitcoin-cash/address/${address}`;
+  }
+  return `https://mempool.space/address/${address}`;
 }
 
 function txExplorerUrl(chain: WalletChain, txHash: string): string {
-  return chain === "eth"
-    ? `https://etherscan.io/tx/${txHash}`
-    : `https://mempool.space/tx/${txHash}`;
+  if (chain === "eth") return `https://etherscan.io/tx/${txHash}`;
+  if (chain === "bch") {
+    return `https://blockchair.com/bitcoin-cash/transaction/${txHash}`;
+  }
+  return `https://mempool.space/tx/${txHash}`;
 }
 
 function statusClass(status: string): string {
@@ -65,6 +70,8 @@ export function WalletsManager({
   const [isPending, startTransition] = useTransition();
   const [ethAddress, setEthAddress] = useState("");
   const [ethLabel, setEthLabel] = useState("");
+  const [bchAddress, setBchAddress] = useState("");
+  const [bchLabel, setBchLabel] = useState("");
   const [xpub, setXpub] = useState("");
   const [btcLabel, setBtcLabel] = useState("");
   const [btcScriptType, setBtcScriptType] = useState<
@@ -168,6 +175,46 @@ export function WalletsManager({
         </form>
 
         <form
+          className="wallet-add-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(async () => {
+              await addBchWalletAction({
+                address: bchAddress,
+                label: bchLabel,
+              });
+              setBchAddress("");
+              setBchLabel("");
+              return "Bitcoin Cash address added.";
+            });
+          }}
+        >
+          <span className="wallet-add-chain">BCH</span>
+          <label className="wallet-address-field">
+            Bitcoin Cash address
+            <input
+              value={bchAddress}
+              onChange={(event) => setBchAddress(event.target.value)}
+              placeholder="bitcoincash:q… or legacy"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            Label
+            <input
+              value={bchLabel}
+              onChange={(event) => setBchLabel(event.target.value)}
+              placeholder="Optional"
+            />
+          </label>
+          <button type="submit" className="secondary-button" disabled={isPending}>
+            Add BCH
+          </button>
+        </form>
+
+        <form
           className="wallet-xpub-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -241,8 +288,8 @@ export function WalletsManager({
 
       {wallets.length === 0 ? (
         <p className="holdings-empty">
-          Add an Ethereum address and/or a Bitcoin xpub, import Crypto.com
-          history for withdrawal hashes, then Scan.
+          Add an Ethereum or Bitcoin Cash address and/or a Bitcoin xpub, import
+          Crypto.com history for withdrawal hashes, then Scan.
         </p>
       ) : (
         <div className="managed-holdings">

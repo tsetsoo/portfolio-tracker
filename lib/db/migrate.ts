@@ -82,7 +82,7 @@ export function migrate(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS wallets (
       id TEXT PRIMARY KEY,
-      chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+      chain TEXT NOT NULL CHECK (chain IN ('eth','btc','bch')),
       address TEXT NOT NULL,
       label TEXT,
       balance REAL,
@@ -95,7 +95,7 @@ export function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS wallet_transfers (
       id TEXT PRIMARY KEY,
       wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL,
-      chain TEXT NOT NULL CHECK (chain IN ('eth','btc')),
+      chain TEXT NOT NULL CHECK (chain IN ('eth','btc','bch')),
       asset TEXT NOT NULL,
       amount REAL NOT NULL,
       tx_hash TEXT NOT NULL UNIQUE,
@@ -154,5 +154,80 @@ export function migrate(db: Database.Database): void {
     db.exec(
       `ALTER TABLE wallet_addresses ADD COLUMN is_change INTEGER NOT NULL DEFAULT 0`,
     );
+  }
+
+  widenWalletChainChecks(db);
+}
+
+/** SQLite CHECK constraints are baked into CREATE TABLE; rebuild when BCH missing. */
+function chainAllowsBch(db: Database.Database): boolean {
+  try {
+    db.prepare(
+      `INSERT INTO wallets (id, chain, address, created_at)
+       VALUES ('__bch_probe__', 'bch', 'probe', '1970-01-01')`,
+    ).run();
+    db.prepare(`DELETE FROM wallets WHERE id = '__bch_probe__'`).run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function widenWalletChainChecks(db: Database.Database): void {
+  if (!hasColumn(db, "wallets", "id") || chainAllowsBch(db)) return;
+
+  db.exec(`PRAGMA foreign_keys = OFF`);
+  try {
+    db.exec(`
+      CREATE TABLE wallets_new (
+        id TEXT PRIMARY KEY,
+        chain TEXT NOT NULL CHECK (chain IN ('eth','btc','bch')),
+        address TEXT NOT NULL,
+        label TEXT,
+        balance REAL,
+        balance_asset TEXT,
+        created_at TEXT NOT NULL,
+        last_synced_at TEXT,
+        xpub TEXT,
+        script_type TEXT,
+        UNIQUE (chain, address)
+      );
+      INSERT INTO wallets_new (
+        id, chain, address, label, balance, balance_asset,
+        created_at, last_synced_at, xpub, script_type
+      )
+      SELECT
+        id, chain, address, label, balance, balance_asset,
+        created_at, last_synced_at,
+        ${hasColumn(db, "wallets", "xpub") ? "xpub" : "NULL"},
+        ${hasColumn(db, "wallets", "script_type") ? "script_type" : "NULL"}
+      FROM wallets;
+      DROP TABLE wallets;
+      ALTER TABLE wallets_new RENAME TO wallets;
+
+      CREATE TABLE wallet_transfers_new (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL,
+        chain TEXT NOT NULL CHECK (chain IN ('eth','btc','bch')),
+        asset TEXT NOT NULL,
+        amount REAL NOT NULL,
+        tx_hash TEXT NOT NULL UNIQUE,
+        transferred_at TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('cryptocom','manual')),
+        import_batch_id TEXT,
+        onchain_amount REAL,
+        onchain_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
+        notes TEXT
+      );
+      INSERT INTO wallet_transfers_new
+      SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
+             source, import_batch_id, onchain_amount, onchain_status, notes
+      FROM wallet_transfers;
+      DROP TABLE wallet_transfers;
+      ALTER TABLE wallet_transfers_new RENAME TO wallet_transfers;
+    `);
+  } finally {
+    db.exec(`PRAGMA foreign_keys = ON`);
   }
 }

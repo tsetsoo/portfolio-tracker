@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 
+import { normalizeBchAddress } from "@/lib/wallets/bch";
 import type {
   CryptoComWithdrawalRow,
   OnchainStatus,
@@ -79,7 +80,9 @@ function mapTransfer(row: TransferRow): WalletTransfer {
 
 function normalizeAddress(chain: WalletChain, address: string): string {
   const trimmed = address.trim();
-  return chain === "eth" ? trimmed.toLowerCase() : trimmed;
+  if (chain === "eth") return trimmed.toLowerCase();
+  if (chain === "bch") return normalizeBchAddress(trimmed);
+  return trimmed;
 }
 
 function normalizeTxHash(chain: WalletChain, txHash: string): string {
@@ -279,10 +282,14 @@ export function setBtcXpubWallet(
     const existingBtc = db
       .prepare(`SELECT id FROM wallets WHERE chain = 'btc'`)
       .all() as Array<{ id: string }>;
+    // Re-queue all BTC transfers so Scan re-links against the new derivation set.
+    db.prepare(
+      `UPDATE wallet_transfers
+       SET wallet_id = NULL, onchain_status = 'pending',
+           onchain_amount = NULL, notes = NULL
+       WHERE chain = 'btc'`,
+    ).run();
     for (const row of existingBtc) {
-      db.prepare(
-        `UPDATE wallet_transfers SET wallet_id = NULL WHERE wallet_id = ?`,
-      ).run(row.id);
       db.prepare(`DELETE FROM wallet_addresses WHERE wallet_id = ?`).run(row.id);
       db.prepare(`DELETE FROM wallets WHERE id = ?`).run(row.id);
     }

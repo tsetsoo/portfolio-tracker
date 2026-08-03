@@ -43,7 +43,7 @@ export default function WalletsPage() {
         <p className="eyebrow">On-chain watch</p>
         <h1>Wallets</h1>
         <p>
-          Track ETH/BTC addresses separately from portfolio value. Scan
+          Track ETH/BTC/BCH addresses separately from portfolio value. Scan
           Crypto.com withdrawal hashes to resolve destinations and flag amount
           mismatches.
         </p>
@@ -62,8 +62,9 @@ export default function WalletsPage() {
         </div>
         <p className="section-note">
           Bitcoin is watch-only via account xpub (receive + change). Ethereum
-          still uses a normal address. Scan links Crypto.com withdrawal hashes
-          to derived BTC addresses. Binance ledger CSVs have no txids yet.
+          and Bitcoin Cash use a normal address. Scan links Crypto.com
+          withdrawal hashes to derived BTC addresses. Binance ledger CSVs have
+          no txids yet.
         </p>
         <WalletsManager
           wallets={walletItems}
