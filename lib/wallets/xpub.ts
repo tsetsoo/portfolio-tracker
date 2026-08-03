@@ -16,8 +16,14 @@ export type DerivedBtcAddress = {
 
 const XPUB_VERSION = Buffer.from("0488b21e", "hex");
 
-/** BIP32 version bytes → script type implied by SLIP-0132 prefixes. */
-function scriptTypeFromPrefix(extendedKey: string): BtcScriptType {
+/** Prefer modern types first when probing ambiguous xpubs. */
+const AMBIGUOUS_PROBE_ORDER: BtcScriptType[] = [
+  "p2wpkh",
+  "p2sh-p2wpkh",
+  "p2pkh",
+];
+
+function prefixScriptType(extendedKey: string): BtcScriptType | "ambiguous" {
   if (extendedKey.startsWith("zpub") || extendedKey.startsWith("Zpub")) {
     return "p2wpkh";
   }
@@ -25,7 +31,9 @@ function scriptTypeFromPrefix(extendedKey: string): BtcScriptType {
     return "p2sh-p2wpkh";
   }
   if (extendedKey.startsWith("xpub") || extendedKey.startsWith("tpub")) {
-    return "p2pkh";
+    // Classic xpub version bytes are reused by Ledger/etc for BIP84/49
+    // account keys — script type is not implied by the prefix alone.
+    return "ambiguous";
   }
   throw new Error("Unsupported key. Paste an xpub, ypub, or zpub.");
 }
@@ -41,7 +49,9 @@ export function toStandardXpub(extendedKey: string): string {
 }
 
 export function detectBtcScriptType(extendedKey: string): BtcScriptType {
-  return scriptTypeFromPrefix(extendedKey.trim());
+  const inferred = prefixScriptType(extendedKey.trim());
+  // Bare xpub does not encode script type; prefer native segwit (BIP84).
+  return inferred === "ambiguous" ? "p2wpkh" : inferred;
 }
 
 function addressFromPubkey(
@@ -120,15 +130,68 @@ export function deriveBtcAddressWindow(
   return out;
 }
 
-export function parseBtcXpub(extendedKey: string): {
+export function parseBtcXpub(
+  extendedKey: string,
+  options: { scriptType?: BtcScriptType } = {},
+): {
   xpub: string;
   scriptType: BtcScriptType;
   firstReceive: string;
 } {
   const xpub = extendedKey.trim();
-  const scriptType = detectBtcScriptType(xpub);
-  // Validate by deriving first address
+  const inferred = prefixScriptType(xpub);
+  const scriptType =
+    options.scriptType ??
+    (inferred === "ambiguous" ? "p2wpkh" : inferred);
+  // Validate by decoding + deriving first address
   toStandardXpub(xpub);
   const firstReceive = deriveBtcAddress(xpub, false, 0, scriptType).address;
   return { xpub, scriptType, firstReceive };
+}
+
+async function addressHasHistory(
+  address: string,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl(
+      `https://mempool.space/api/address/${address}`,
+    );
+    if (!response.ok) return false;
+    const body = (await response.json()) as {
+      chain_stats?: { tx_count?: number };
+    };
+    return (body.chain_stats?.tx_count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve script type for an account extended key.
+ * zpub/ypub are unambiguous; bare xpub is probed on-chain (0/0) preferring
+ * native segwit, then nested, then legacy.
+ */
+export async function resolveBtcScriptType(
+  extendedKey: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    scriptType?: BtcScriptType;
+  } = {},
+): Promise<BtcScriptType> {
+  if (options.scriptType) return options.scriptType;
+
+  const trimmed = extendedKey.trim();
+  const inferred = prefixScriptType(trimmed);
+  if (inferred !== "ambiguous") return inferred;
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  for (const type of AMBIGUOUS_PROBE_ORDER) {
+    const address = deriveBtcAddress(trimmed, false, 0, type).address;
+    if (await addressHasHistory(address, fetchImpl)) {
+      return type;
+    }
+  }
+  // Modern wallets almost always use native segwit for new accounts.
+  return "p2wpkh";
 }

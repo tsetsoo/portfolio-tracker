@@ -271,8 +271,9 @@ export function setBtcXpubWallet(
   db: Database.Database,
   extendedKey: string,
   label?: string | null,
+  scriptType?: BtcScriptType,
 ): Wallet {
-  const parsed = parseBtcXpub(extendedKey);
+  const parsed = parseBtcXpub(extendedKey, { scriptType });
 
   return db.transaction(() => {
     const existingBtc = db

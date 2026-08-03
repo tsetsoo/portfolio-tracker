@@ -1119,6 +1119,10 @@ nav[data-pending="true"] a {
   margin-bottom: 10px;
 }
 
+.wallet-xpub-form {
+  grid-template-columns: auto minmax(12rem, 1.6fr) minmax(8rem, 10rem) minmax(7rem, 1fr) auto;
+}
+
 .wallet-add-chain {
   align-self: center;
   color: var(--muted);
@@ -1136,7 +1140,8 @@ nav[data-pending="true"] a {
 }
 
 .wallet-add-form input,
-.wallet-xpub-form input {
+.wallet-xpub-form input,
+.wallet-xpub-form select {
   border: 1px solid var(--line);
   border-radius: 6px;
   font: inherit;

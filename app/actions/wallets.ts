@@ -18,6 +18,10 @@ import {
   type ScanWithdrawalsResult,
 } from "@/lib/wallets/sync";
 import type { Wallet, WalletChain, WalletTransfer } from "@/lib/wallets/types";
+import {
+  resolveBtcScriptType,
+  type BtcScriptType,
+} from "@/lib/wallets/xpub";
 
 export type WalletListItem = Wallet & {
   transferCount: number;
@@ -105,8 +109,19 @@ export async function addWalletAction(input: {
 export async function setBtcXpubAction(input: {
   xpub: string;
   label?: string;
+  /** When omitted, zpub/ypub are unambiguous; bare xpub is probed on-chain. */
+  scriptType?: BtcScriptType | "auto";
 }): Promise<Wallet> {
-  const wallet = setBtcXpubWallet(getDb(), input.xpub, input.label ?? null);
+  const scriptType =
+    input.scriptType && input.scriptType !== "auto"
+      ? input.scriptType
+      : await resolveBtcScriptType(input.xpub);
+  const wallet = setBtcXpubWallet(
+    getDb(),
+    input.xpub,
+    input.label ?? null,
+    scriptType,
+  );
   try {
     await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
   } catch {

@@ -12,6 +12,7 @@ import {
   type WalletListItem,
 } from "@/app/actions/wallets";
 import type { WalletChain, WalletTransfer } from "@/lib/wallets/types";
+import type { BtcScriptType } from "@/lib/wallets/xpub";
 
 function shortAddress(address: string): string {
   if (address.length <= 16) return address;
@@ -66,6 +67,9 @@ export function WalletsManager({
   const [ethLabel, setEthLabel] = useState("");
   const [xpub, setXpub] = useState("");
   const [btcLabel, setBtcLabel] = useState("");
+  const [btcScriptType, setBtcScriptType] = useState<
+    BtcScriptType | "auto"
+  >("auto");
 
   const hasBtcXpub = wallets.some(
     (wallet) => wallet.chain === "btc" && wallet.xpub,
@@ -168,12 +172,22 @@ export function WalletsManager({
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
-              await setBtcXpubAction({ xpub, label: btcLabel });
+              const wallet = await setBtcXpubAction({
+                xpub,
+                label: btcLabel,
+                scriptType: btcScriptType,
+              });
               setXpub("");
               setBtcLabel("");
+              const kind =
+                wallet.scriptType === "p2wpkh"
+                  ? "native SegWit (bc1…)"
+                  : wallet.scriptType === "p2sh-p2wpkh"
+                    ? "nested SegWit (3…)"
+                    : "legacy (1…)";
               return hasBtcXpub
-                ? "Bitcoin xpub replaced. Balances refreshing."
-                : "Bitcoin xpub saved. Balances refreshing.";
+                ? `Bitcoin xpub replaced as ${kind}.`
+                : `Bitcoin xpub saved as ${kind}.`;
             });
           }}
         >
@@ -190,6 +204,22 @@ export function WalletsManager({
             />
           </label>
           <label>
+            Address type
+            <select
+              value={btcScriptType}
+              onChange={(event) =>
+                setBtcScriptType(
+                  event.target.value as BtcScriptType | "auto",
+                )
+              }
+            >
+              <option value="auto">Auto (recommended)</option>
+              <option value="p2wpkh">Native SegWit (bc1…)</option>
+              <option value="p2sh-p2wpkh">Nested SegWit (3…)</option>
+              <option value="p2pkh">Legacy (1…)</option>
+            </select>
+          </label>
+          <label>
             Label
             <input
               value={btcLabel}
@@ -202,9 +232,10 @@ export function WalletsManager({
           </button>
         </form>
         <p className="muted wallet-xpub-hint">
-          Watch-only: paste the account extended public key from your wallet
-          software. Receive + change addresses are derived (gap limit 20). Never
-          paste a seed phrase.
+          Watch-only: paste the account extended public key. Bare{" "}
+          <code>xpub</code> keys are ambiguous — Auto checks the chain for
+          bc1… / 3… / 1… (Ledger often exports BIP84 as xpub). Never paste a
+          seed phrase.
         </p>
       </section>
 
