@@ -595,6 +595,7 @@ function parseExchangeExport(
             "Missing required Crypto.com Exchange headers (Time, Symbol, Side, Trade Price, Trade Amount)",
         },
       ],
+      withdrawalCosts: [],
     };
   }
 

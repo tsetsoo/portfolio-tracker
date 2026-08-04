@@ -62,7 +62,7 @@ async function fetchEthInflows(
     if (!row.hash || !row.to || row.isError === "1") continue;
     if (row.to.toLowerCase() !== address.toLowerCase()) continue;
     const wei = BigInt(row.value ?? "0");
-    if (wei <= 0n) continue;
+    if (wei <= BigInt(0)) continue;
     const amount = Number(wei) / 1e18;
     const ts = Number(row.timeStamp ?? 0);
     const transferredAt = ts > 0 ? dayFromUnix(ts) : "unknown";
