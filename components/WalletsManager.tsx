@@ -179,13 +179,13 @@ export function WalletsManager({
           onSubmit={(event) => {
             event.preventDefault();
             run(async () => {
-              await addBchWalletAction({
+              const wallet = await addBchWalletAction({
                 address: bchAddress,
                 label: bchLabel,
               });
               setBchAddress("");
               setBchLabel("");
-              return "Bitcoin Cash address added.";
+              return `Bitcoin Cash address added (${wallet.addresses.length} total).`;
             });
           }}
         >
@@ -195,7 +195,7 @@ export function WalletsManager({
             <input
               value={bchAddress}
               onChange={(event) => setBchAddress(event.target.value)}
-              placeholder="bitcoincash:q… or legacy"
+              placeholder="bitcoincash:q… (added to one wallet)"
               autoComplete="off"
               spellCheck={false}
               required
@@ -305,6 +305,9 @@ export function WalletsManager({
                         <span>
                           {wallet.label || "Bitcoin (xpub)"}
                         </span>
+                      ) : wallet.chain === "bch" &&
+                        wallet.addresses.length > 1 ? (
+                        <span>{wallet.label || "Bitcoin Cash"}</span>
                       ) : (
                         <a
                           href={explorerUrl(wallet.chain, wallet.address)}
@@ -319,6 +322,14 @@ export function WalletsManager({
                       <small className="muted">
                         {wallet.scriptType ?? "xpub"} · {shortXpub(wallet.xpub)}{" "}
                         · {wallet.addresses.length} derived
+                      </small>
+                    ) : wallet.chain === "bch" ? (
+                      <small className="muted">
+                        {wallet.addresses.length} address
+                        {wallet.addresses.length === 1 ? "" : "es"}
+                        {wallet.label
+                          ? ` · ${shortAddress(wallet.address)}`
+                          : ""}
                       </small>
                     ) : (
                       wallet.label && (

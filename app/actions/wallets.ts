@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { getDb } from "@/lib/db/client";
 import {
+  addBchAddress,
+  consolidateBchWallets,
   countTransfersByWallet,
   createManualWallet,
   deleteWallet,
@@ -101,9 +103,12 @@ export async function addBchWalletAction(input: {
   if (!isValidBchAddress(address)) {
     throw new Error("Invalid Bitcoin Cash address");
   }
-  const wallet = createManualWallet(getDb(), "bch", address, input.label ?? null);
+  const db = getDb();
+  // Collapse any prior one-address BCH rows, then attach.
+  consolidateBchWallets(db);
+  const wallet = addBchAddress(db, address, input.label ?? null);
   try {
-    await refreshWalletBalances(getDb(), { walletIds: [wallet.id] });
+    await refreshWalletBalances(db, { walletIds: [wallet.id] });
   } catch {
     // Balance optional on add
   }

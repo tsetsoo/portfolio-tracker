@@ -18,15 +18,12 @@ describe("BCH address helpers", () => {
     expect(isValidBchAddress("0xdead")).toBe(false);
   });
 
-  it("fetches balance in BCH from Blockchair", async () => {
+  it("fetches balance in BCH from Haskoin", async () => {
     const address = "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a";
     const fetchImpl = vi.fn(async () =>
       Response.json({
-        data: {
-          [address]: {
-            address: { balance: 12_500_000 },
-          },
-        },
+        confirmed: 12_500_000,
+        unconfirmed: 0,
       }),
     );
 
@@ -35,3 +32,4 @@ describe("BCH address helpers", () => {
     ).resolves.toBe(0.125);
   });
 });
+

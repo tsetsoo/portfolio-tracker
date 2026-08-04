@@ -356,7 +356,87 @@ export function createManualWallet(
   address: string,
   label?: string | null,
 ): Wallet {
+  if (chain === "bch") {
+    return addBchAddress(db, address, label);
+  }
   return getOrCreateWallet(db, chain, address, label);
+}
+
+/**
+ * Keep a single BCH wallet and attach further CashAddr/legacy addresses to it
+ * (same idea as BTC's multi-address bag, without requiring an xpub).
+ */
+export function addBchAddress(
+  db: Database.Database,
+  address: string,
+  label?: string | null,
+): Wallet {
+  const normalized = normalizeAddress("bch", address);
+  const already = findWalletIdByAddress(db, normalized);
+  if (already) {
+    const row = getWalletRow(db, already);
+    if (row) {
+      if (label?.trim() && !row.label) {
+        updateWalletLabel(db, already, label);
+      }
+      return mapWallet(
+        getWalletRow(db, already)!,
+        listAddressesForWallet(db, already),
+      );
+    }
+  }
+
+  const bag = db
+    .prepare(
+      `SELECT id, chain, address, label, balance, balance_asset, created_at, last_synced_at,
+              xpub, script_type
+       FROM wallets
+       WHERE chain = 'bch'
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`,
+    )
+    .get() as WalletRow | undefined;
+
+  if (bag) {
+    ensureWalletAddress(db, bag.id, normalized);
+    if (label?.trim() && !bag.label) {
+      updateWalletLabel(db, bag.id, label);
+    }
+    return mapWallet(
+      getWalletRow(db, bag.id)!,
+      listAddressesForWallet(db, bag.id),
+    );
+  }
+
+  return getOrCreateWallet(db, "bch", normalized, label);
+}
+
+/** Merge every BCH wallet into the oldest one; returns the surviving wallet. */
+export function consolidateBchWallets(db: Database.Database): Wallet | null {
+  const bags = db
+    .prepare(
+      `SELECT id FROM wallets WHERE chain = 'bch' ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as Array<{ id: string }>;
+  if (bags.length === 0) return null;
+  const primaryId = bags[0]!.id;
+
+  return db.transaction(() => {
+    for (const row of bags.slice(1)) {
+      // Address is globally unique — re-parent rows instead of inserting copies.
+      db.prepare(
+        `UPDATE wallet_addresses SET wallet_id = ? WHERE wallet_id = ?`,
+      ).run(primaryId, row.id);
+      db.prepare(
+        `UPDATE wallet_transfers SET wallet_id = ? WHERE wallet_id = ?`,
+      ).run(primaryId, row.id);
+      db.prepare(`DELETE FROM wallets WHERE id = ?`).run(row.id);
+    }
+    return mapWallet(
+      getWalletRow(db, primaryId)!,
+      listAddressesForWallet(db, primaryId),
+    );
+  })();
 }
 
 export function updateWalletLabel(

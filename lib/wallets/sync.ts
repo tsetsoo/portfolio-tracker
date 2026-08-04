@@ -192,9 +192,14 @@ export async function refreshWalletBalances(
         updateAddressBalance(db, wallet.id, wallet.address, balance);
         updateWalletBalance(db, wallet.id, balance, "ETH", syncedAt);
       } else if (wallet.chain === "bch") {
-        const balance = await fetchBchBalance(wallet.address, { fetchImpl });
-        updateAddressBalance(db, wallet.id, wallet.address, balance);
-        updateWalletBalance(db, wallet.id, balance, "BCH", syncedAt);
+        const addresses = listAddressesForWallet(db, wallet.id);
+        let total = 0;
+        for (const address of addresses) {
+          const balance = await fetchBchBalance(address, { fetchImpl });
+          updateAddressBalance(db, wallet.id, address, balance);
+          total += balance;
+        }
+        updateWalletBalance(db, wallet.id, total, "BCH", syncedAt);
       } else {
         let addresses = listAddressesForWallet(db, wallet.id);
         if (wallet.xpub) {

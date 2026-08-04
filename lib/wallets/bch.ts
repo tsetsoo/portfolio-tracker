@@ -1,5 +1,5 @@
-const BLOCKCHAIR_BASE =
-  "https://api.blockchair.com/bitcoin-cash/dashboards/address";
+const HASKOIN_BASE =
+  "https://api.blockchain.info/haskoin-store/bch/address";
 
 /** CashAddr (with or without prefix) or legacy Base58. */
 export function normalizeBchAddress(address: string): string {
@@ -23,13 +23,9 @@ export function isValidBchAddress(address: string): boolean {
   return /^[13][a-km-zA-HJ-NP-Z1-9]{24,34}$/.test(normalized);
 }
 
-type BlockchairAddressResponse = {
-  data?: Record<
-    string,
-    {
-      address?: { balance?: number };
-    }
-  >;
+type HaskoinBalanceResponse = {
+  confirmed?: number;
+  unconfirmed?: number;
 };
 
 export async function fetchBchBalance(
@@ -37,19 +33,15 @@ export async function fetchBchBalance(
   options: { fetchImpl?: typeof fetch; baseUrl?: string } = {},
 ): Promise<number> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const base = options.baseUrl ?? BLOCKCHAIR_BASE;
+  const base = options.baseUrl ?? HASKOIN_BASE;
   const normalized = normalizeBchAddress(address);
   const response = await fetchImpl(
-    `${base}/${encodeURIComponent(normalized)}`,
+    `${base}/${encodeURIComponent(normalized)}/balance`,
+    { headers: { Accept: "application/json" } },
   );
   if (!response.ok) {
-    throw new Error(`Blockchair BCH HTTP ${response.status}`);
+    throw new Error(`BCH balance HTTP ${response.status}`);
   }
-  const body = (await response.json()) as BlockchairAddressResponse;
-  const entry =
-    body.data?.[normalized] ??
-    body.data?.[normalized.replace(/^bitcoincash:/, "")] ??
-    Object.values(body.data ?? {})[0];
-  const sats = entry?.address?.balance ?? 0;
-  return sats / 1e8;
+  const body = (await response.json()) as HaskoinBalanceResponse;
+  return (body.confirmed ?? 0) / 1e8;
 }
