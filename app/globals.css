@@ -478,6 +478,20 @@ nav[data-pending="true"] a {
   max-width: 520px;
 }
 
+.holdings-type-section {
+  margin-bottom: 4px;
+}
+
+.holdings-type-section + .holdings-type-section {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+.holdings-type-section .section-heading {
+  background: transparent;
+}
+
 .managed-holding {
   border-bottom: 1px solid var(--line);
 }

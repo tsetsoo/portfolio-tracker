@@ -73,9 +73,10 @@ describe("holdings management UI", () => {
     );
 
     expect(html).toContain("BTC");
+    expect(html).toContain("Crypto");
     expect(html).toContain("€17,000.00");
     expect(html).toContain("<details");
-    expect(html).toContain(" open");
+    expect(html).not.toMatch(/<details[^>]*\sopen[\s>]/);
     expect(html).toContain("Purchases");
     expect(html).toContain("0.25");
     expect(html).toContain("$60,000.00");
@@ -85,6 +86,39 @@ describe("holdings management UI", () => {
     expect(html).toContain('name="holdingId"');
     expect(html).toContain('value="btc"');
     expect(html).toContain("Delete");
+  });
+
+  it("renders crypto and stocks in separate sections", () => {
+    const equityHolding: typeof valuedHolding = {
+      ...valuedHolding,
+      holding: {
+        ...valuedHolding.holding,
+        id: "aapl",
+        type: "equity",
+        symbol: "AAPL",
+        name: "Apple",
+      },
+      quantity: 2,
+      currentValueBase: 400,
+    };
+    const html = renderToStaticMarkup(
+      <HoldingsManager
+        holdings={[valuedHolding, equityHolding]}
+        lotsByHolding={{}}
+        currency="EUR"
+      />,
+    );
+
+    expect(html).toContain("Crypto");
+    expect(html).toContain("Stocks &amp; ETFs");
+    expect(html).toContain("AAPL");
+    const cryptoIdx = html.indexOf("Crypto");
+    const stocksIdx = html.indexOf("Stocks &amp; ETFs");
+    const btcIdx = html.indexOf(">BTC<");
+    const aaplIdx = html.indexOf(">AAPL<");
+    expect(cryptoIdx).toBeLessThan(btcIdx);
+    expect(btcIdx).toBeLessThan(stocksIdx);
+    expect(stocksIdx).toBeLessThan(aaplIdx);
   });
 
   it("renders an inline edit form for manual holdings and no units row", () => {
