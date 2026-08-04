@@ -42,6 +42,8 @@ type TransferRow = {
   onchain_amount: number | null;
   onchain_status: OnchainStatus;
   notes: string | null;
+  cost_basis: number | null;
+  cost_currency: string | null;
 };
 
 function mapWallet(row: WalletRow, addresses: string[]): Wallet {
@@ -75,7 +77,16 @@ function mapTransfer(row: TransferRow): WalletTransfer {
     onchainAmount: row.onchain_amount,
     onchainStatus: row.onchain_status,
     notes: row.notes,
+    costBasis: row.cost_basis,
+    costCurrency: row.cost_currency,
   };
+}
+
+function transferSelectSql(): string {
+  return `SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
+                source, import_batch_id, onchain_amount, onchain_status, notes,
+                cost_basis, cost_currency
+         FROM wallet_transfers`;
 }
 
 function normalizeAddress(chain: WalletChain, address: string): string {
@@ -186,9 +197,7 @@ export function listWalletTransfers(
   if (walletId) {
     const rows = db
       .prepare(
-        `SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
-                source, import_batch_id, onchain_amount, onchain_status, notes
-         FROM wallet_transfers
+        `${transferSelectSql()}
          WHERE wallet_id = ?
          ORDER BY transferred_at DESC, id`,
       )
@@ -197,9 +206,7 @@ export function listWalletTransfers(
   }
   const rows = db
     .prepare(
-      `SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
-              source, import_batch_id, onchain_amount, onchain_status, notes
-       FROM wallet_transfers
+      `${transferSelectSql()}
        ORDER BY transferred_at DESC, id`,
     )
     .all() as TransferRow[];
@@ -209,15 +216,20 @@ export function listWalletTransfers(
 export function listPendingTransfers(db: Database.Database): WalletTransfer[] {
   const rows = db
     .prepare(
-      `SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
-              source, import_batch_id, onchain_amount, onchain_status, notes
-       FROM wallet_transfers
+      `${transferSelectSql()}
        WHERE onchain_status IN ('pending','unresolved','weak')
           OR wallet_id IS NULL
        ORDER BY transferred_at ASC`,
     )
     .all() as TransferRow[];
   return rows.map(mapTransfer);
+}
+
+export function listKnownTransferTxHashes(db: Database.Database): Set<string> {
+  const rows = db
+    .prepare(`SELECT tx_hash AS txHash FROM wallet_transfers`)
+    .all() as Array<{ txHash: string }>;
+  return new Set(rows.map((row) => row.txHash.toLowerCase()));
 }
 
 export function getOrCreateWallet(
@@ -494,13 +506,16 @@ export function upsertWalletTransfersFromWithdrawals(
   const insert = db.prepare(
     `INSERT INTO wallet_transfers
        (id, wallet_id, chain, asset, amount, tx_hash, transferred_at, source,
-        import_batch_id, onchain_amount, onchain_status, notes)
-     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL)
+        import_batch_id, onchain_amount, onchain_status, notes,
+        cost_basis, cost_currency)
+     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?)
      ON CONFLICT(tx_hash) DO UPDATE SET
        amount = excluded.amount,
        asset = excluded.asset,
        transferred_at = excluded.transferred_at,
-       import_batch_id = COALESCE(excluded.import_batch_id, wallet_transfers.import_batch_id)`,
+       import_batch_id = COALESCE(excluded.import_batch_id, wallet_transfers.import_batch_id),
+       cost_basis = COALESCE(excluded.cost_basis, wallet_transfers.cost_basis),
+       cost_currency = COALESCE(excluded.cost_currency, wallet_transfers.cost_currency)`,
   );
 
   let upserted = 0;
@@ -516,6 +531,8 @@ export function upsertWalletTransfersFromWithdrawals(
       row.transferredAt,
       source,
       options.importBatchId ?? null,
+      row.costBasis ?? null,
+      row.costCurrency ?? null,
     );
     upserted += result.changes > 0 ? 1 : 0;
   }

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import {
+  attachWithdrawalCosts,
   parseCryptoComTradesCsv,
   type CryptoComTradeRow,
   type ParseResult,
@@ -51,7 +52,10 @@ export function previewCryptoComImport(
     toInsert,
     duplicates,
     errors: parsed.errors,
-    withdrawals: extractCryptoComWithdrawals(csvText),
+    withdrawals: attachWithdrawalCosts(
+      extractCryptoComWithdrawals(csvText),
+      parsed.withdrawalCosts,
+    ),
   };
 }
 
@@ -104,11 +108,18 @@ export function commitCryptoComImport(
       inserted += 1;
     }
 
-    const withdrawals =
-      options.withdrawals ??
-      (options.csvText
-        ? extractCryptoComWithdrawals(options.csvText)
-        : []);
+    let withdrawals = options.withdrawals;
+    if (!withdrawals) {
+      if (options.csvText) {
+        const parsed = parseCryptoComTradesCsv(options.csvText);
+        withdrawals = attachWithdrawalCosts(
+          extractCryptoComWithdrawals(options.csvText),
+          parsed.withdrawalCosts,
+        );
+      } else {
+        withdrawals = [];
+      }
+    }
     const { upserted: withdrawalsUpserted } =
       upsertWalletTransfersFromWithdrawals(db, withdrawals, {
         importBatchId: options.importBatchId,

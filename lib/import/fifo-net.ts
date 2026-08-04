@@ -18,9 +18,19 @@ export type LotFill = {
   row: LotRow;
 };
 
+export type FifoConsumed = {
+  externalTradeId: string | null;
+  symbol: string;
+  quantity: number;
+  costBasis: number;
+  costCurrency: string;
+  disposition: "sell" | "withdrawal";
+};
+
 export type FifoNetResult = {
   rows: LotRow[];
   errors: Array<{ line: number; message: string }>;
+  consumed: FifoConsumed[];
 };
 
 const QTY_EPS = 1e-10;
@@ -39,9 +49,11 @@ export function sortKeyFromDate(value: unknown): string {
 /**
  * Apply sells FIFO against buys (chronological). Fully sold symbols are dropped;
  * partial sells reduce remaining lot quantity and prorate fees.
+ * Also records cost basis consumed by each sell/withdrawal fill.
  */
 export function netFillsFifo(fills: LotFill[]): FifoNetResult {
   const errors: FifoNetResult["errors"] = [];
+  const consumed: FifoConsumed[] = [];
   const queues = new Map<string, LotRow[]>();
   const touched = new Set<string>();
 
@@ -63,9 +75,20 @@ export function netFillsFifo(fills: LotFill[]): FifoNetResult {
     }
 
     let remaining = fill.row.quantity;
+    let costBasis = 0;
+    let costCurrency: string | null = null;
+    let mixedCurrency = false;
+    const requested = fill.row.quantity;
+
     while (remaining > QTY_EPS && queue.length > 0) {
       const lot = queue[0]!;
+      if (costCurrency == null) costCurrency = lot.costCurrency;
+      else if (lot.costCurrency !== costCurrency) mixedCurrency = true;
       const take = Math.min(lot.quantity, remaining);
+      if (!mixedCurrency && costCurrency) {
+        const feeShare = lot.quantity > 0 ? (take / lot.quantity) * lot.fees : 0;
+        costBasis += take * lot.costPerUnit + feeShare;
+      }
       if (take + QTY_EPS >= lot.quantity) {
         remaining = cleanQty(remaining - lot.quantity);
         queue.shift();
@@ -75,6 +98,18 @@ export function netFillsFifo(fills: LotFill[]): FifoNetResult {
         lot.fees *= leftRatio;
         remaining = cleanQty(remaining - take);
       }
+    }
+
+    const applied = cleanQty(requested - remaining);
+    if (applied > QTY_EPS && costCurrency && !mixedCurrency) {
+      consumed.push({
+        externalTradeId: fill.row.externalTradeId,
+        symbol,
+        quantity: applied,
+        costBasis,
+        costCurrency,
+        disposition: fill.disposition ?? "sell",
+      });
     }
 
     if (remaining > QTY_EPS) {
@@ -103,5 +138,5 @@ export function netFillsFifo(fills: LotFill[]): FifoNetResult {
     rows.push(...open);
   }
 
-  return { rows, errors };
+  return { rows, errors, consumed };
 }

@@ -157,6 +157,19 @@ export function migrate(db: Database.Database): void {
   }
 
   widenWalletChainChecks(db);
+
+  if (
+    hasColumn(db, "wallet_transfers", "id") &&
+    !hasColumn(db, "wallet_transfers", "cost_basis")
+  ) {
+    db.exec(`ALTER TABLE wallet_transfers ADD COLUMN cost_basis REAL`);
+  }
+  if (
+    hasColumn(db, "wallet_transfers", "id") &&
+    !hasColumn(db, "wallet_transfers", "cost_currency")
+  ) {
+    db.exec(`ALTER TABLE wallet_transfers ADD COLUMN cost_currency TEXT`);
+  }
 }
 
 /** SQLite CHECK constraints are baked into CREATE TABLE; rebuild when BCH missing. */

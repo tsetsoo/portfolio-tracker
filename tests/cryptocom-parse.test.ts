@@ -87,6 +87,14 @@ describe("parseCryptoComTradesCsv", () => {
         /applied withdrawal:\s*1\.5 eth/i.test(e.message),
       ),
     ).toBe(true);
+    expect(result.withdrawalCosts).toHaveLength(1);
+    expect(result.withdrawalCosts[0]).toMatchObject({
+      externalTradeId: "cryptocom:w2",
+      asset: "ETH",
+      quantity: 1.5,
+      costCurrency: "EUR",
+    });
+    expect(result.withdrawalCosts[0]!.costBasis).toBeCloseTo(3000);
   });
 
   it("nets wallet swap debit/credit so converted assets leave inventory", () => {

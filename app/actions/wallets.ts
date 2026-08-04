@@ -14,12 +14,18 @@ import {
   setBtcXpubWallet,
   updateWalletLabel,
 } from "@/lib/wallets/repo";
+import { findOrphanInflows } from "@/lib/wallets/orphans";
 import {
   refreshWalletBalances,
   scanWalletWithdrawals,
   type ScanWithdrawalsResult,
 } from "@/lib/wallets/sync";
-import type { Wallet, WalletChain, WalletTransfer } from "@/lib/wallets/types";
+import type {
+  OrphanInflow,
+  Wallet,
+  WalletChain,
+  WalletTransfer,
+} from "@/lib/wallets/types";
 import { isValidBchAddress, normalizeBchAddress } from "@/lib/wallets/bch";
 import {
   resolveBtcScriptType,
@@ -63,10 +69,17 @@ export async function listUnresolvedTransfers(): Promise<WalletTransfer[]> {
   );
 }
 
-export async function scanWithdrawalsAction(): Promise<ScanWithdrawalsResult> {
+export async function scanWithdrawalsAction(): Promise<
+  ScanWithdrawalsResult & { orphans: OrphanInflow[] }
+> {
   const result = await scanWalletWithdrawals(getDb());
+  const orphans = await findOrphanInflows(getDb());
   revalidateWallets();
-  return result;
+  return { ...result, orphans };
+}
+
+export async function findMissingInflowsAction(): Promise<OrphanInflow[]> {
+  return findOrphanInflows(getDb());
 }
 
 export async function refreshBalancesAction(): Promise<{ updated: number }> {

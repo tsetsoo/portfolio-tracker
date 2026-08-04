@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import {
   addBchWalletAction,
   addEthWalletAction,
+  findMissingInflowsAction,
   refreshBalancesAction,
   removeWalletAction,
   renameWalletAction,
@@ -12,7 +13,11 @@ import {
   setBtcXpubAction,
   type WalletListItem,
 } from "@/app/actions/wallets";
-import type { WalletChain, WalletTransfer } from "@/lib/wallets/types";
+import type {
+  OrphanInflow,
+  WalletChain,
+  WalletTransfer,
+} from "@/lib/wallets/types";
 import type { BtcScriptType } from "@/lib/wallets/xpub";
 
 function shortAddress(address: string): string {
@@ -77,6 +82,7 @@ export function WalletsManager({
   const [btcScriptType, setBtcScriptType] = useState<
     BtcScriptType | "auto"
   >("auto");
+  const [orphans, setOrphans] = useState<OrphanInflow[]>([]);
 
   const hasBtcXpub = wallets.some(
     (wallet) => wallet.chain === "btc" && wallet.xpub,
@@ -105,7 +111,8 @@ export function WalletsManager({
           onClick={() =>
             run(async () => {
               const result = await scanWithdrawalsAction();
-              return `Scan done: ${result.resolved} resolved (${result.matched} matched, ${result.mismatched} mismatch, ${result.weak} weak, ${result.unresolved} unresolved).`;
+              setOrphans(result.orphans);
+              return `Scan done: ${result.resolved} resolved (${result.matched} matched, ${result.mismatched} mismatch, ${result.weak} weak, ${result.unresolved} unresolved). ${result.orphans.length} unmatched inflow${result.orphans.length === 1 ? "" : "s"}.`;
             })
           }
         >
@@ -124,6 +131,22 @@ export function WalletsManager({
         >
           Refresh balances
         </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={isPending || wallets.length === 0}
+          onClick={() =>
+            run(async () => {
+              const found = await findMissingInflowsAction();
+              setOrphans(found);
+              return found.length === 0
+                ? "No unmatched inflows found on tracked addresses."
+                : `Found ${found.length} unmatched inflow${found.length === 1 ? "" : "s"}.`;
+            })
+          }
+        >
+          Find missing inflows
+        </button>
         {pendingCount > 0 && (
           <span className="muted">
             {pendingCount} transfer{pendingCount === 1 ? "" : "s"} awaiting scan
@@ -132,6 +155,70 @@ export function WalletsManager({
       </div>
 
       {message && <p className="form-message">{message}</p>}
+
+      {orphans.length > 0 && (
+        <section className="dashboard-panel" aria-label="Unmatched inflows">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Needs attention</p>
+              <h2>Unmatched inflows</h2>
+            </div>
+            <span>{orphans.length}</span>
+          </div>
+          <p className="section-note">
+            Coins arrived on your wallets without a matching imported withdrawal
+            txid. Check the exchange history hinted below, then re-import.
+          </p>
+          <div className="lots-scroll">
+            <table className="lots-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Asset</th>
+                  <th className="numeric">Amount</th>
+                  <th>From</th>
+                  <th>Likely</th>
+                  <th>Where to look</th>
+                  <th>Tx</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orphans.map((row) => (
+                  <tr key={`${row.chain}:${row.txHash}`}>
+                    <td>{row.transferredAt}</td>
+                    <td>{row.asset}</td>
+                    <td className="numeric">{formatQty(row.amount)}</td>
+                    <td>
+                      {row.fromAddress ? (
+                        <a
+                          href={explorerUrl(row.chain, row.fromAddress)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {shortAddress(row.fromAddress)}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>{row.guessedVenue}</td>
+                    <td className="muted">{row.searchHint}</td>
+                    <td>
+                      <a
+                        href={txExplorerUrl(row.chain, row.txHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {shortAddress(row.txHash)}
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="wallet-add-panel" aria-label="Add wallets">
         <form
@@ -446,6 +533,7 @@ export function WalletsManager({
                             <th>Date</th>
                             <th>Asset</th>
                             <th className="numeric">CSV amt</th>
+                            <th className="numeric">Cost</th>
                             <th className="numeric">On-chain</th>
                             <th>Status</th>
                             <th>Tx</th>
@@ -458,6 +546,12 @@ export function WalletsManager({
                               <td>{transfer.asset}</td>
                               <td className="numeric">
                                 {formatQty(transfer.amount)}
+                              </td>
+                              <td className="numeric">
+                                {transfer.costBasis != null &&
+                                transfer.costCurrency
+                                  ? `${formatQty(transfer.costBasis)} ${transfer.costCurrency}`
+                                  : "—"}
                               </td>
                               <td className="numeric">
                                 {formatQty(transfer.onchainAmount)}

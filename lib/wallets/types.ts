@@ -39,6 +39,9 @@ export type WalletTransfer = {
   onchainAmount: number | null;
   onchainStatus: OnchainStatus;
   notes: string | null;
+  /** FIFO cost of coins withdrawn from exchange lots (when known). */
+  costBasis: number | null;
+  costCurrency: string | null;
 };
 
 export type CryptoComWithdrawalRow = {
@@ -47,4 +50,19 @@ export type CryptoComWithdrawalRow = {
   amount: number;
   txHash: string;
   transferredAt: string;
+  costBasis?: number | null;
+  costCurrency?: string | null;
+};
+
+/** Inbound on-chain transfer with no matching imported withdrawal. */
+export type OrphanInflow = {
+  chain: WalletChain;
+  asset: string;
+  amount: number;
+  txHash: string;
+  transferredAt: string;
+  toAddress: string;
+  fromAddress: string | null;
+  guessedVenue: "cryptocom" | "binance" | "unknown";
+  searchHint: string;
 };

@@ -63,8 +63,9 @@ export default function WalletsPage() {
         <p className="section-note">
           Bitcoin is watch-only via account xpub (receive + change). Ethereum
           and Bitcoin Cash use a normal address. Scan links Crypto.com
-          withdrawal hashes to derived BTC addresses. Binance ledger CSVs have
-          no txids yet.
+          withdrawal hashes (with FIFO cost from your buys) and flags inbound
+          txs that have no matching import. Binance ledger CSVs have no txids
+          yet — use Find missing inflows for those.
         </p>
         <WalletsManager
           wallets={walletItems}

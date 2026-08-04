@@ -11,9 +11,19 @@ import {
 
 export type CryptoComTradeRow = LotRow;
 
+export type WithdrawalCost = {
+  /** Raw or cryptocom:-prefixed tx hash from the CSV. */
+  externalTradeId: string;
+  asset: string;
+  quantity: number;
+  costBasis: number;
+  costCurrency: string;
+};
+
 export type ParseResult = {
   rows: CryptoComTradeRow[];
   errors: Array<{ line: number; message: string }>;
+  withdrawalCosts: WithdrawalCost[];
 };
 
 const QUOTE_ASSETS = [
@@ -201,6 +211,7 @@ function parseAppExport(
             "Missing required Crypto.com App headers (Timestamp, Currency, Amount, Transaction Kind)",
         },
       ],
+      withdrawalCosts: [],
     };
   }
 
@@ -532,7 +543,25 @@ function parseAppExport(
   });
 
   const netted = netFillsFifo(fills);
-  return { rows: netted.rows, errors: [...errors, ...netted.errors] };
+  const withdrawalCosts: WithdrawalCost[] = netted.consumed
+    .filter(
+      (row) =>
+        row.disposition === "withdrawal" &&
+        row.externalTradeId != null &&
+        row.externalTradeId !== "",
+    )
+    .map((row) => ({
+      externalTradeId: row.externalTradeId!,
+      asset: row.symbol,
+      quantity: row.quantity,
+      costBasis: row.costBasis,
+      costCurrency: row.costCurrency,
+    }));
+  return {
+    rows: netted.rows,
+    errors: [...errors, ...netted.errors],
+    withdrawalCosts,
+  };
 }
 
 function parseExchangeExport(
@@ -646,13 +675,21 @@ function parseExchangeExport(
   });
 
   const netted = netFillsFifo(fills);
-  return { rows: netted.rows, errors: [...errors, ...netted.errors] };
+  return {
+    rows: netted.rows,
+    errors: [...errors, ...netted.errors],
+    withdrawalCosts: [],
+  };
 }
 
 export function parseCryptoComTradesCsv(csvText: string): ParseResult {
   const trimmed = csvText.trim();
   if (trimmed === "") {
-    return { rows: [], errors: [{ line: 1, message: "Empty CSV" }] };
+    return {
+      rows: [],
+      errors: [{ line: 1, message: "Empty CSV" }],
+      withdrawalCosts: [],
+    };
   }
 
   const parsed = Papa.parse<Record<string, string>>(trimmed, {
@@ -669,12 +706,20 @@ export function parseCryptoComTradesCsv(csvText: string): ParseResult {
 
   if (isAppExport(fields)) {
     const result = parseAppExport(parsed.data, fields);
-    return { rows: result.rows, errors: [...parseErrors, ...result.errors] };
+    return {
+      rows: result.rows,
+      errors: [...parseErrors, ...result.errors],
+      withdrawalCosts: result.withdrawalCosts,
+    };
   }
 
   if (isExchangeExport(fields)) {
     const result = parseExchangeExport(parsed.data, fields);
-    return { rows: result.rows, errors: [...parseErrors, ...result.errors] };
+    return {
+      rows: result.rows,
+      errors: [...parseErrors, ...result.errors],
+      withdrawalCosts: result.withdrawalCosts,
+    };
   }
 
   return {
@@ -687,5 +732,30 @@ export function parseCryptoComTradesCsv(csvText: string): ParseResult {
           "Unrecognized Crypto.com CSV (expected App transaction history or Exchange trade history headers)",
       },
     ],
+    withdrawalCosts: [],
   };
+}
+
+/** Match FIFO withdrawal costs onto extracted on-chain withdrawal rows by tx hash. */
+export function attachWithdrawalCosts(
+  withdrawals: import("@/lib/wallets/types").CryptoComWithdrawalRow[],
+  costs: WithdrawalCost[],
+): import("@/lib/wallets/types").CryptoComWithdrawalRow[] {
+  const byHash = new Map<string, WithdrawalCost>();
+  for (const cost of costs) {
+    const raw = cost.externalTradeId.replace(/^cryptocom:/i, "").toLowerCase();
+    byHash.set(raw, cost);
+    byHash.set(cost.externalTradeId.toLowerCase(), cost);
+  }
+  return withdrawals.map((row) => {
+    const cost =
+      byHash.get(row.txHash.toLowerCase()) ??
+      byHash.get(row.txHash.toLowerCase().replace(/^0x/, ""));
+    if (!cost) return row;
+    return {
+      ...row,
+      costBasis: cost.costBasis,
+      costCurrency: cost.costCurrency,
+    };
+  });
 }
