@@ -6,6 +6,7 @@ import {
   addBchWalletAction,
   addEthWalletAction,
   findMissingInflowsAction,
+  markOrphanGiftAction,
   markTransferGiftAction,
   refreshBalancesAction,
   removeWalletAction,
@@ -170,7 +171,8 @@ export function WalletsManager({
           </div>
           <p className="section-note">
             Coins arrived on your wallets without a matching imported withdrawal
-            txid. Check the exchange history hinted below, then re-import.
+            txid. Check the exchange history hinted below and re-import, or mark
+            as Gift if there was no purchase cost.
           </p>
           <div className="lots-scroll">
             <table className="lots-table">
@@ -183,6 +185,7 @@ export function WalletsManager({
                   <th>Likely</th>
                   <th>Where to look</th>
                   <th>Tx</th>
+                  <th>Cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -214,6 +217,37 @@ export function WalletsManager({
                       >
                         {shortAddress(row.txHash)}
                       </a>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={isPending}
+                        onClick={() =>
+                          run(async () => {
+                            await markOrphanGiftAction({
+                              chain: row.chain,
+                              asset: row.asset,
+                              amount: row.amount,
+                              txHash: row.txHash,
+                              transferredAt: row.transferredAt,
+                              toAddress: row.toAddress,
+                            });
+                            setOrphans((prev) =>
+                              prev.filter(
+                                (o) =>
+                                  !(
+                                    o.chain === row.chain &&
+                                    o.txHash === row.txHash
+                                  ),
+                              ),
+                            );
+                            return "Marked unmatched inflow as gift.";
+                          })
+                        }
+                      >
+                        Gift
+                      </button>
                     </td>
                   </tr>
                 ))}

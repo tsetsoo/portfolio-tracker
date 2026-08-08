@@ -5,6 +5,7 @@ import { normalizeBchAddress } from "@/lib/wallets/bch";
 import type {
   ExchangeWithdrawalRow,
   OnchainStatus,
+  OrphanInflow,
   TransferCostStatus,
   Wallet,
   WalletChain,
@@ -581,6 +582,80 @@ export function updateTransferCost(
     update.costNotes ?? null,
     id,
   );
+}
+
+/** Persist an unmatched on-chain inflow as a manual gift (zero cost basis). */
+export function markOrphanInflowAsGift(
+  db: Database.Database,
+  orphan: Pick<
+    OrphanInflow,
+    "chain" | "asset" | "amount" | "txHash" | "transferredAt" | "toAddress"
+  >,
+): WalletTransfer {
+  const txHash = normalizeTxHash(orphan.chain, orphan.txHash);
+  if (!txHash) throw new Error("Invalid transaction hash");
+  if (!(orphan.amount > 0)) throw new Error("Amount must be positive");
+
+  const wallet = getOrCreateWallet(db, orphan.chain, orphan.toAddress);
+  const existing = db
+    .prepare(`${transferSelectSql()} WHERE tx_hash = ?`)
+    .get(txHash) as TransferRow | undefined;
+
+  if (existing) {
+    db.prepare(
+      `UPDATE wallet_transfers
+       SET wallet_id = ?,
+           amount = ?,
+           asset = ?,
+           transferred_at = ?,
+           source = 'manual',
+           onchain_amount = ?,
+           onchain_status = 'matched',
+           cost_basis = NULL,
+           cost_currency = NULL,
+           cost_status = 'gift',
+           cost_notes = ?,
+           notes = COALESCE(notes, ?)
+       WHERE id = ?`,
+    ).run(
+      wallet.id,
+      orphan.amount,
+      orphan.asset.trim().toUpperCase(),
+      orphan.transferredAt,
+      orphan.amount,
+      "Marked as gift / unknown source",
+      "Gift / unknown source inflow",
+      existing.id,
+    );
+    const updated = db
+      .prepare(`${transferSelectSql()} WHERE id = ?`)
+      .get(existing.id) as TransferRow;
+    return mapTransfer(updated);
+  }
+
+  const id = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO wallet_transfers
+       (id, wallet_id, chain, asset, amount, tx_hash, transferred_at, source,
+        import_batch_id, onchain_amount, onchain_status, notes,
+        cost_basis, cost_currency, cost_status, cost_notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', NULL, ?, 'matched', ?, NULL, NULL, 'gift', ?)`,
+  ).run(
+    id,
+    wallet.id,
+    orphan.chain,
+    orphan.asset.trim().toUpperCase(),
+    orphan.amount,
+    txHash,
+    orphan.transferredAt,
+    orphan.amount,
+    "Gift / unknown source inflow",
+    "Marked as gift / unknown source",
+  );
+  const row = db
+    .prepare(`${transferSelectSql()} WHERE id = ?`)
+    .get(id) as TransferRow;
+  return mapTransfer(row);
 }
 
 export function listTokenBalancesForWallet(

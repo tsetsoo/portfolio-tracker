@@ -12,6 +12,7 @@ import {
   listTokenBalancesForWallet,
   listWalletTransfers,
   listWallets,
+  markOrphanInflowAsGift,
   setBtcXpubWallet,
   updateTransferCost,
   updateWalletLabel,
@@ -77,6 +78,19 @@ export async function markTransferGiftAction(transferId: string): Promise<void> 
     costNotes: "Marked as gift / unknown source",
   });
   revalidateWallets();
+}
+
+export async function markOrphanGiftAction(orphan: {
+  chain: WalletChain;
+  asset: string;
+  amount: number;
+  txHash: string;
+  transferredAt: string;
+  toAddress: string;
+}): Promise<WalletTransfer> {
+  const transfer = markOrphanInflowAsGift(getDb(), orphan);
+  revalidateWallets();
+  return transfer;
 }
 
 export async function setTransferManualCostAction(
