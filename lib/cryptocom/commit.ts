@@ -8,14 +8,15 @@ import {
 } from "@/lib/cryptocom/parse";
 import { extractCryptoComWithdrawals } from "@/lib/cryptocom/withdrawals";
 import { addLot, createHolding } from "@/lib/holdings-repo";
+import { fifoFxFromDb } from "@/lib/import/fifo-fx";
 import { upsertWalletTransfersFromWithdrawals } from "@/lib/wallets/repo";
-import type { CryptoComWithdrawalRow } from "@/lib/wallets/types";
+import type { ExchangeWithdrawalRow } from "@/lib/wallets/types";
 
 export type CryptoComImportPreview = {
   toInsert: CryptoComTradeRow[];
   duplicates: CryptoComTradeRow[];
   errors: ParseResult["errors"];
-  withdrawals: CryptoComWithdrawalRow[];
+  withdrawals: ExchangeWithdrawalRow[];
 };
 
 function hasTradeId(db: Database.Database, externalTradeId: string): boolean {
@@ -30,7 +31,7 @@ export function previewCryptoComImport(
   db: Database.Database,
   csvText: string,
 ): CryptoComImportPreview {
-  const parsed = parseCryptoComTradesCsv(csvText);
+  const parsed = parseCryptoComTradesCsv(csvText, { fx: fifoFxFromDb(db) });
   const toInsert: CryptoComTradeRow[] = [];
   const duplicates: CryptoComTradeRow[] = [];
   const seenTradeIds = new Set<string>();
@@ -64,12 +65,13 @@ export function commitCryptoComImport(
   rows: CryptoComTradeRow[],
   options: {
     importBatchId?: string | null;
-    withdrawals?: CryptoComWithdrawalRow[];
+    withdrawals?: ExchangeWithdrawalRow[];
     csvText?: string;
   } = {},
 ): { inserted: number; withdrawalsUpserted: number } {
   return db.transaction(() => {
     let inserted = 0;
+    const fx = fifoFxFromDb(db);
 
     for (const row of rows) {
       if (row.externalTradeId && hasTradeId(db, row.externalTradeId)) {
@@ -111,7 +113,7 @@ export function commitCryptoComImport(
     let withdrawals = options.withdrawals;
     if (!withdrawals) {
       if (options.csvText) {
-        const parsed = parseCryptoComTradesCsv(options.csvText);
+        const parsed = parseCryptoComTradesCsv(options.csvText, { fx });
         withdrawals = attachWithdrawalCosts(
           extractCryptoComWithdrawals(options.csvText),
           parsed.withdrawalCosts,

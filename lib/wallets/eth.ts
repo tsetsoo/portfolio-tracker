@@ -18,13 +18,19 @@ const DEFAULT_RPCS = [
   "https://1rpc.io/eth",
 ];
 
-/** Well-known ERC-20 contracts we treat as mainnet token transfers. */
-const ERC20_ASSETS: Record<string, { asset: string; decimals: number }> = {
+/** Well-known ERC-20 contracts we treat as mainnet token transfers / balances. */
+export const ERC20_ASSETS: Record<
+  string,
+  { asset: string; decimals: number }
+> = {
   "0x514910771af9ca656af840dff83e8264ecf986ca": {
     asset: "LINK",
     decimals: 18,
   },
 };
+
+/** Minimum token market value (EUR) to surface on the Wallets page. */
+export const ETH_TOKEN_MIN_VALUE_EUR = 10;
 
 async function ethRpc(
   method: string,
@@ -132,4 +138,38 @@ export async function fetchEthBalance(
     rpcUrls,
   )) as string;
   return Number(BigInt(result)) / 1e18;
+}
+
+function balanceOfData(holder: string): string {
+  const addr = holder.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  return `0x70a08231${addr}`;
+}
+
+export async function fetchEthTokenBalances(
+  address: string,
+  options: { fetchImpl?: typeof fetch; rpcUrls?: string[] } = {},
+): Promise<Array<{ asset: string; balance: number }>> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const rpcUrls = options.rpcUrls ?? DEFAULT_RPCS;
+  const holder = address.toLowerCase();
+  const out: Array<{ asset: string; balance: number }> = [];
+
+  for (const [contract, meta] of Object.entries(ERC20_ASSETS)) {
+    try {
+      const result = (await ethRpc(
+        "eth_call",
+        [{ to: contract, data: balanceOfData(holder) }, "latest"],
+        fetchImpl,
+        rpcUrls,
+      )) as string;
+      if (!result || result === "0x") continue;
+      const raw = BigInt(result);
+      if (raw === 0n) continue;
+      const balance = Number(raw) / 10 ** meta.decimals;
+      if (balance > 0) out.push({ asset: meta.asset, balance });
+    } catch {
+      // Skip token on RPC failure; ETH balance still refreshes.
+    }
+  }
+  return out;
 }

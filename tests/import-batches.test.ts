@@ -33,6 +33,9 @@ describe("import batches", () => {
     expect(suggestImportBatchName("binance", day, "auto-invest")).toBe(
       "Binance Auto-Invest 2026-07-28",
     );
+    expect(suggestImportBatchName("binance", day, "convert")).toBe(
+      "Binance Convert 2026-07-28",
+    );
     expect(suggestImportBatchName("ibkr", day)).toBe(
       "Interactive Brokers 2026-07-28",
     );

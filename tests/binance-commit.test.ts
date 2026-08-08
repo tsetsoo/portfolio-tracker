@@ -33,7 +33,9 @@ describe("Binance import commit", () => {
 
     expect(preview.toInsert).toHaveLength(2);
     expect(preview.duplicates).toEqual([]);
-    expect(commitBinanceImport(db, preview.toInsert)).toEqual({ inserted: 2 });
+    expect(commitBinanceImport(db, preview.toInsert)).toMatchObject({
+      inserted: 2,
+    });
 
     const holdings = db
       .prepare(
@@ -53,7 +55,7 @@ describe("Binance import commit", () => {
     const repeated = previewBinanceImport(db, fixtureCsv);
     expect(repeated.toInsert).toEqual([]);
     expect(repeated.duplicates).toHaveLength(2);
-    expect(commitBinanceImport(db, repeated.duplicates)).toEqual({
+    expect(commitBinanceImport(db, repeated.duplicates)).toMatchObject({
       inserted: 0,
     });
   });
@@ -90,7 +92,9 @@ describe("Binance import commit", () => {
     );
     const preview = previewBinanceImport(db, autoCsv, "auto-invest");
     expect(preview.toInsert).toHaveLength(4);
-    expect(commitBinanceImport(db, preview.toInsert)).toEqual({ inserted: 4 });
+    expect(commitBinanceImport(db, preview.toInsert)).toMatchObject({
+      inserted: 4,
+    });
 
     const holdings = db
       .prepare(
@@ -103,6 +107,38 @@ describe("Binance import commit", () => {
     ]);
 
     const repeated = previewBinanceImport(db, autoCsv, "auto-invest");
+    expect(repeated.toInsert).toEqual([]);
+    expect(repeated.duplicates).toHaveLength(4);
+  });
+
+  it("imports Convert Success buys as crypto lots", () => {
+    const convertCsv = readFileSync(
+      path.join(__dirname, "fixtures", "binance-convert-sample.csv"),
+      "utf8",
+    );
+    const preview = previewBinanceImport(db, convertCsv, "convert");
+    expect(preview.toInsert).toHaveLength(4);
+    expect(commitBinanceImport(db, preview.toInsert)).toMatchObject({
+      inserted: 4,
+    });
+
+    const btc = db
+      .prepare(
+        `SELECT l.quantity, l.cost_currency, l.external_trade_id
+         FROM lots l
+         JOIN holdings h ON h.id = l.holding_id
+         WHERE h.symbol = 'BTC' AND l.external_trade_id LIKE 'binance-convert:%'
+         ORDER BY l.purchased_at`,
+      )
+      .all() as Array<{
+      quantity: number;
+      cost_currency: string;
+      external_trade_id: string;
+    }>;
+    expect(btc).toHaveLength(2);
+    expect(btc[0]?.cost_currency).toBe("EUR");
+
+    const repeated = previewBinanceImport(db, convertCsv, "convert");
     expect(repeated.toInsert).toEqual([]);
     expect(repeated.duplicates).toHaveLength(4);
   });

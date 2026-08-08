@@ -3,17 +3,25 @@ import { createHash } from "node:crypto";
 import Papa from "papaparse";
 
 import {
+  createFifoFxLookup,
   netFillsFifo,
   sortKeyFromDate,
+  type FifoFxLookup,
   type LotFill,
   type LotRow,
 } from "@/lib/import/fifo-net";
+import type { WithdrawalCost } from "@/lib/cryptocom/parse";
+import { attachWithdrawalCosts } from "@/lib/cryptocom/parse";
+import { extractBinanceWithdrawals } from "@/lib/binance/withdrawals";
+import type { ExchangeWithdrawalRow } from "@/lib/wallets/types";
 
 export type BinanceTradeRow = LotRow;
 
 export type ParseResult = {
   rows: BinanceTradeRow[];
   errors: Array<{ line: number; message: string }>;
+  withdrawalCosts?: WithdrawalCost[];
+  withdrawals?: ExchangeWithdrawalRow[];
 };
 
 /** Longest-first so USDT wins over USD, etc. */
@@ -44,6 +52,16 @@ const FIAT_BASES = new Set([
   "JPY",
   "TRY",
   "BRL",
+]);
+
+/** Stables bought via Convert are usually spent as quote — skip as holdings. */
+const STABLE_BUY_SKIPS = new Set([
+  "USDT",
+  "USDC",
+  "BUSD",
+  "TUSD",
+  "FDUSD",
+  "DAI",
 ]);
 
 const HEADER_ALIASES: Record<string, string[]> = {
@@ -239,17 +257,21 @@ function isSellSide(side: string): boolean {
 
 /** @deprecated Prefer netFillsFifo from @/lib/import/fifo-net */
 export function netSpotFillsFifo(fills: LotFill[]): ParseResult {
-  return netFillsFifo(fills);
+  const netted = netFillsFifo(fills);
+  return { rows: netted.rows, errors: netted.errors };
 }
 
-export function parseBinanceTradesCsv(csvText: string): ParseResult {
+export function collectBinanceSpotFills(csvText: string): {
+  fills: LotFill[];
+  errors: Array<{ line: number; message: string }>;
+} {
   const errors: Array<{ line: number; message: string }> = [];
   const fills: LotFill[] = [];
 
   const trimmed = csvText.trim();
   if (trimmed === "") {
     return {
-      rows: [],
+      fills: [],
       errors: [{ line: 1, message: "Empty CSV" }],
     };
   }
@@ -276,7 +298,6 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
   const feeCol = resolveColumn(fields, "fee");
   const feeCoinCol = resolveColumn(fields, "feeCoin");
   const tradeIdCol = resolveColumn(fields, "tradeId");
-  // Prefer dedicated executed qty; avoid using quote "Amount" as quantity
   const amountCol = resolveColumn(fields, "amount");
   const qtyCol =
     executedCol && normalizeHeader(executedCol) !== "amount"
@@ -285,7 +306,7 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
 
   if (!dateCol || !pairCol || !sideCol || !priceCol || !qtyCol) {
     return {
-      rows: [],
+      fills: [],
       errors: [
         ...errors,
         {
@@ -297,7 +318,6 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
     };
   }
 
-  // If both Executed and Amount exist, always use Executed for quantity
   const quantityCol = executedCol ?? qtyCol;
 
   parsed.data.forEach((record, index) => {
@@ -386,10 +406,132 @@ export function parseBinanceTradesCsv(csvText: string): ParseResult {
     }
   });
 
-  const netted = netSpotFillsFifo(fills);
+  return { fills, errors };
+}
+
+export function parseBinanceTradesCsv(csvText: string): ParseResult {
+  const { fills, errors } = collectBinanceSpotFills(csvText);
+  if (fills.length === 0 && errors.length > 0) {
+    return { rows: [], errors };
+  }
+  const netted = netFillsFifo(fills);
   return {
     rows: netted.rows,
     errors: [...errors, ...netted.errors],
+  };
+}
+
+function rowsToBuyFills(
+  rows: BinanceTradeRow[],
+  orderOffset: number,
+): LotFill[] {
+  return rows.map((row, index) => ({
+    line: orderOffset + index + 2,
+    order: orderOffset + index,
+    sortKey: sortKeyFromDate(`${row.purchasedAt}T12:00:00`),
+    side: "BUY" as const,
+    row,
+  }));
+}
+
+/**
+ * Spot + Convert + Auto-Invest buys/sells, then Withdraw History as
+ * disposition=withdrawal fills. One FIFO → open lots + wallet transfer costs.
+ */
+export function parseBinanceUnifiedWithdraw(input: {
+  withdrawCsv: string;
+  spotCsv?: string;
+  convertCsv?: string;
+  autoInvestCsv?: string;
+  fx?: FifoFxLookup | null;
+}): ParseResult {
+  const fx =
+    input.fx ?? createFifoFxLookup({ baseCurrency: "EUR" });
+  const fills: LotFill[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+  let order = 0;
+
+  if (input.spotCsv?.trim()) {
+    const spot = collectBinanceSpotFills(input.spotCsv);
+    errors.push(...spot.errors);
+    for (const fill of spot.fills) {
+      fills.push({ ...fill, order: order++ });
+    }
+  }
+
+  if (input.convertCsv?.trim()) {
+    const convert = parseBinanceConvertCsv(input.convertCsv);
+    errors.push(...convert.errors);
+    for (const fill of rowsToBuyFills(convert.rows, order)) {
+      fills.push({ ...fill, order: order++ });
+    }
+  }
+
+  if (input.autoInvestCsv?.trim()) {
+    const auto = parseBinanceAutoInvestCsv(input.autoInvestCsv);
+    errors.push(...auto.errors);
+    for (const fill of rowsToBuyFills(auto.rows, order)) {
+      fills.push({ ...fill, order: order++ });
+    }
+  }
+
+  const extracted = extractBinanceWithdrawals(input.withdrawCsv);
+  if (extracted.length === 0 && !input.withdrawCsv.trim()) {
+    errors.push({ line: 1, message: "Empty withdraw CSV" });
+  }
+
+  for (const [index, wd] of extracted.entries()) {
+    const tx = wd.txHash.startsWith("0x") || wd.chain === "eth"
+      ? wd.txHash.toLowerCase()
+      : wd.txHash;
+    fills.push({
+      line: 9000 + index,
+      order: order++,
+      sortKey: sortKeyFromDate(wd.transferredAt),
+      side: "SELL",
+      disposition: "withdrawal",
+      row: {
+        symbol: wd.asset,
+        quantity: wd.fifoQuantity,
+        costPerUnit: 0,
+        costCurrency: "EUR",
+        purchasedAt: wd.transferredAt.slice(0, 10),
+        fees: 0,
+        externalTradeId: `binance:${tx}`,
+      },
+    });
+  }
+
+  const netted = netFillsFifo(fills, fx);
+  const withdrawalCosts: WithdrawalCost[] = netted.consumed
+    .filter(
+      (row) =>
+        row.disposition === "withdrawal" &&
+        row.externalTradeId != null &&
+        row.externalTradeId !== "",
+    )
+    .map((row) => ({
+      externalTradeId: row.externalTradeId!,
+      asset: row.symbol,
+      quantity: row.quantity,
+      costBasis: row.costBasis,
+      costCurrency: row.costCurrency,
+      partial: row.partial,
+    }));
+
+  const transferRows = extracted.map((wd) => ({
+    chain: wd.chain,
+    asset: wd.asset,
+    amount: wd.amount,
+    txHash: wd.txHash,
+    transferredAt: wd.transferredAt.slice(0, 10),
+  }));
+
+  return {
+    rows: netted.rows,
+    errors: [...errors, ...netted.errors],
+    withdrawalCosts,
+    withdrawals: attachWithdrawalCosts(transferRows, withdrawalCosts),
   };
 }
 
@@ -579,6 +721,188 @@ export function parseBinanceAutoInvestCsv(csvText: string): ParseResult {
           amount: spent.amount,
           quote,
           fee: fees,
+          line,
+        }),
+      });
+    } catch (e) {
+      errors.push({
+        line,
+        message: e instanceof Error ? e.message : "Invalid row",
+      });
+    }
+  });
+
+  return { rows, errors };
+}
+
+const CONVERT_HEADERS: Record<string, string[]> = {
+  date: ["time", "date", "date updated"],
+  pair: ["pair"],
+  sell: ["sell"],
+  buy: ["buy"],
+  status: ["status"],
+};
+
+function resolveConvertColumn(
+  headers: string[],
+  canonical: keyof typeof CONVERT_HEADERS,
+): string | undefined {
+  const aliases = CONVERT_HEADERS[canonical];
+  for (const header of headers) {
+    if (aliases.includes(normalizeHeader(header))) {
+      return header;
+    }
+  }
+  return undefined;
+}
+
+function convertTradeId(parts: {
+  date: string;
+  pair: string;
+  sell: string;
+  buy: string;
+  line: number;
+}): string {
+  const material = [
+    parts.date,
+    parts.pair,
+    parts.sell,
+    parts.buy,
+    parts.line,
+  ].join("|");
+  const hash = createHash("sha1").update(material).digest("hex").slice(0, 16);
+  return `binance-convert:${hash}`;
+}
+
+/**
+ * Binance Convert → Order History export.
+ * Successful rows that buy a non-fiat asset become lots;
+ * cost/unit = Sell amount ÷ Buy amount (fee baked into Convert price).
+ */
+export function parseBinanceConvertCsv(csvText: string): ParseResult {
+  const rows: BinanceTradeRow[] = [];
+  const errors: Array<{ line: number; message: string }> = [];
+
+  const trimmed = csvText.trim();
+  if (trimmed === "") {
+    return {
+      rows: [],
+      errors: [{ line: 1, message: "Empty CSV" }],
+    };
+  }
+
+  const parsed = Papa.parse<Record<string, string>>(trimmed, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (header) => header.replace(/^\uFEFF/, "").trim(),
+  });
+
+  for (const err of parsed.errors) {
+    errors.push({
+      line: (err.row ?? 0) + 1,
+      message: err.message,
+    });
+  }
+
+  const fields = parsed.meta.fields ?? [];
+  const dateCol = resolveConvertColumn(fields, "date");
+  const pairCol = resolveConvertColumn(fields, "pair");
+  const sellCol = resolveConvertColumn(fields, "sell");
+  const buyCol = resolveConvertColumn(fields, "buy");
+  const statusCol = resolveConvertColumn(fields, "status");
+
+  const hasSell = fields.some((f) => normalizeHeader(f) === "sell");
+  const hasBuy = fields.some((f) => normalizeHeader(f) === "buy");
+  const hasInversePrice = fields.some(
+    (f) => normalizeHeader(f) === "inverse price",
+  );
+
+  if (
+    !dateCol ||
+    !pairCol ||
+    !sellCol ||
+    !buyCol ||
+    !hasSell ||
+    !hasBuy ||
+    !hasInversePrice
+  ) {
+    return {
+      rows: [],
+      errors: [
+        ...errors,
+        {
+          line: 1,
+          message:
+            "Missing required Binance Convert headers (Time, Pair, Sell, Buy, Inverse Price)",
+        },
+      ],
+    };
+  }
+
+  parsed.data.forEach((record, index) => {
+    const line = index + 2;
+    const status = statusCol
+      ? String(record[statusCol] ?? "").trim().toLowerCase()
+      : "successful";
+
+    if (status && status !== "successful" && status !== "success") {
+      errors.push({
+        line,
+        message: `Skipped ${status || "non-success"} Convert row`,
+      });
+      return;
+    }
+
+    try {
+      const sellRaw = String(record[sellCol] ?? "").trim();
+      const buyRaw = String(record[buyCol] ?? "").trim();
+      const sell = parseAmountWithAsset(sellRaw, "sell");
+      const buy = parseAmountWithAsset(buyRaw, "buy");
+
+      if (!sell.asset) {
+        throw new Error("Missing sell asset");
+      }
+      if (!buy.asset) {
+        throw new Error("Missing buy asset");
+      }
+      if (buy.amount <= 0) {
+        errors.push({ line, message: "Skipped zero-buy Convert row" });
+        return;
+      }
+      if (sell.amount <= 0) {
+        throw new Error("Invalid sell amount");
+      }
+      if (FIAT_BASES.has(buy.asset)) {
+        errors.push({
+          line,
+          message: `Skipped fiat buy Convert row: ${buy.asset}`,
+        });
+        return;
+      }
+      if (STABLE_BUY_SKIPS.has(buy.asset)) {
+        errors.push({
+          line,
+          message: `Skipped stable buy Convert row: ${buy.asset}`,
+        });
+        return;
+      }
+
+      const pairRaw = String(record[pairCol] ?? "").trim();
+      const dateRaw = String(record[dateCol] ?? "").trim();
+      const purchasedAt = parsePurchasedAt(dateRaw);
+
+      rows.push({
+        symbol: buy.asset,
+        quantity: buy.amount,
+        costPerUnit: sell.amount / buy.amount,
+        costCurrency: sell.asset,
+        purchasedAt,
+        fees: 0,
+        externalTradeId: convertTradeId({
+          date: dateRaw,
+          pair: pairRaw,
+          sell: sellRaw,
+          buy: buyRaw,
           line,
         }),
       });

@@ -7,7 +7,9 @@ export type OnchainStatus =
   | "unresolved"
   | "weak";
 
-export type WalletTransferSource = "cryptocom" | "manual";
+export type WalletTransferSource = "cryptocom" | "binance" | "manual";
+
+export type TransferCostStatus = "costed" | "partial" | "unknown" | "gift";
 
 export type Wallet = {
   id: string;
@@ -42,9 +44,21 @@ export type WalletTransfer = {
   /** FIFO cost of coins withdrawn from exchange lots (when known). */
   costBasis: number | null;
   costCurrency: string | null;
+  costStatus: TransferCostStatus;
+  costNotes: string | null;
 };
 
-export type CryptoComWithdrawalRow = {
+export type WalletTokenBalance = {
+  walletId: string;
+  asset: string;
+  balance: number;
+  valueBase: number | null;
+  valueCurrency: string | null;
+  updatedAt: string;
+};
+
+/** On-chain withdrawal extracted from an exchange CSV (CDC or Binance). */
+export type ExchangeWithdrawalRow = {
   chain: WalletChain;
   asset: string;
   amount: number;
@@ -52,7 +66,12 @@ export type CryptoComWithdrawalRow = {
   transferredAt: string;
   costBasis?: number | null;
   costCurrency?: string | null;
+  costStatus?: TransferCostStatus | null;
+  costNotes?: string | null;
 };
+
+/** @deprecated Prefer ExchangeWithdrawalRow */
+export type CryptoComWithdrawalRow = ExchangeWithdrawalRow;
 
 /** Inbound on-chain transfer with no matching imported withdrawal. */
 export type OrphanInflow = {

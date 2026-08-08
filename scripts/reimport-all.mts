@@ -9,6 +9,7 @@ import {
   parseBinanceAutoInvestCsv,
   parseBinanceTradesCsv,
 } from "../lib/binance/parse.ts";
+import { previewCryptoComImport } from "../lib/cryptocom/commit.ts";
 import { parseCryptoComTradesCsv } from "../lib/cryptocom/parse.ts";
 import { parseIbkrTradesCsv } from "../lib/ibkr/parse.ts";
 import { combineCsvTexts } from "../lib/import/combine-csv.ts";
@@ -76,6 +77,7 @@ function notesFromErrors(
   const skipped = parsed.errors.filter((e) =>
     /^Skipped /i.test(e.message),
   ).length;
+  const preview = previewCryptoComImport(db, combined);
   const result = commitImportWithBatch(db, parsed.rows, {
     name: "Crypto.com App history",
     broker: "cryptocom",
@@ -85,10 +87,14 @@ function notesFromErrors(
     closedCount: closed,
     skippedCount: skipped,
     notes: notesFromErrors(parsed.errors),
+    csvText: combined,
+    withdrawals: preview.withdrawals,
   });
   console.log("CDC", {
     openLots: parsed.rows.length,
     inserted: result.inserted,
+    withdrawals: preview.withdrawals.length,
+    withCost: preview.withdrawals.filter((w) => w.costBasis != null).length,
     closed,
     skipped,
   });

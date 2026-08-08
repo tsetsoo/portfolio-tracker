@@ -19,6 +19,12 @@ export function suggestImportBatchName(
   if (broker === "binance" && sourceDetail === "auto-invest") {
     return `Binance Auto-Invest ${stamp}`;
   }
+  if (broker === "binance" && sourceDetail === "convert") {
+    return `Binance Convert ${stamp}`;
+  }
+  if (broker === "binance" && sourceDetail === "withdraw") {
+    return `Binance Withdraw ${stamp}`;
+  }
   if (broker === "binance" && sourceDetail === "spot") {
     return `Binance Spot ${stamp}`;
   }

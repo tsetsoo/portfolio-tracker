@@ -61,14 +61,16 @@ export async function commitIbkrRows(
 
 export async function previewBinanceCsv(
   csvText: string,
-  format: "spot" | "auto-invest" = "spot",
+  format: "spot" | "auto-invest" | "convert" | "withdraw" = "spot",
 ) {
   return previewBinanceImport(getDb(), csvText, format);
 }
 
 export async function commitBinanceRows(
   rows: BinanceTradeRow[],
-  meta?: ImportCommitMetaInput & { sourceDetail?: "spot" | "auto-invest" },
+  meta?: ImportCommitMetaInput & {
+    sourceDetail?: "spot" | "auto-invest" | "convert" | "withdraw";
+  },
 ) {
   if (meta) {
     const result = commitImportWithBatch(getDb(), rows, {
@@ -77,6 +79,7 @@ export async function commitBinanceRows(
       sourceDetail: meta.sourceDetail ?? "spot",
     });
     revalidateImportPaths();
+    revalidatePath("/wallets");
     return result;
   }
   const result = commitBinanceImport(getDb(), rows);

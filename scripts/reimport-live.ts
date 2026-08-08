@@ -7,7 +7,9 @@
  *     --ibkr /path/to/ibkr.csv \
  *     --cdc /path/to/cdc1.csv --cdc /path/to/cdc2.csv \
  *     --binance-spot /path/to/spot.csv \
- *     --binance-auto /path/to/auto-invest.csv
+ *     --binance-auto /path/to/auto-invest.csv \
+ *     [--binance-convert /path/to/convert.csv] \
+ *     [--binance-withdraw /path/to/withdraw.csv]
  */
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -29,6 +31,8 @@ type Args = {
   cdc: string[];
   binanceSpot: string[];
   binanceAuto: string[];
+  binanceConvert: string[];
+  binanceWithdraw: string[];
   skipReset: boolean;
 };
 
@@ -39,6 +43,8 @@ function parseArgs(argv: string[]): Args {
     cdc: [],
     binanceSpot: [],
     binanceAuto: [],
+    binanceConvert: [],
+    binanceWithdraw: [],
     skipReset: false,
   };
 
@@ -64,6 +70,12 @@ function parseArgs(argv: string[]): Args {
         break;
       case "--binance-auto":
         args.binanceAuto.push(next());
+        break;
+      case "--binance-convert":
+        args.binanceConvert.push(next());
+        break;
+      case "--binance-withdraw":
+        args.binanceWithdraw.push(next());
         break;
       case "--skip-reset":
         args.skipReset = true;
@@ -162,6 +174,8 @@ function main() {
       closedCount: noteSummary.closed,
       skippedCount: noteSummary.skipped,
       notes,
+      csvText: text,
+      withdrawals: preview.withdrawals,
     });
     console.log(
       "CRYPTOCOM",
@@ -170,6 +184,8 @@ function main() {
         batchId: result.batchId,
         toInsert: preview.toInsert.length,
         duplicates: preview.duplicates.length,
+        withdrawals: preview.withdrawals.length,
+        withCost: preview.withdrawals.filter((w) => w.costBasis != null).length,
         errors: preview.errors.length,
         noteSummary,
       }),
@@ -228,6 +244,79 @@ function main() {
         batchId: result.batchId,
         toInsert: preview.toInsert.length,
         duplicates: preview.duplicates.length,
+        errors: preview.errors.length,
+        noteSummary,
+      }),
+    );
+  }
+
+  // 5) Binance Convert (optional)
+  if (args.binanceConvert.length > 0) {
+    const { text, fileNames } = readCombined(args.binanceConvert);
+    const preview = previewBinanceImport(db, text, "convert");
+    const noteSummary = summarizeImportNotes(preview.errors);
+    const notes = preview.errors.map((e) => e.message);
+    const result = commitImportWithBatch(db, preview.toInsert, {
+      name: "Binance Convert",
+      broker: "binance",
+      sourceDetail: "convert",
+      fileNames,
+      duplicates: preview.duplicates.length,
+      closedCount: noteSummary.closed,
+      skippedCount: noteSummary.skipped,
+      notes,
+    });
+    console.log(
+      "BINANCE_CONVERT",
+      JSON.stringify({
+        inserted: result.inserted,
+        batchId: result.batchId,
+        toInsert: preview.toInsert.length,
+        duplicates: preview.duplicates.length,
+        errors: preview.errors.length,
+        noteSummary,
+      }),
+    );
+  }
+
+  // 6) Binance Withdraw — re-FIFO spot+convert+auto against withdrawals
+  if (args.binanceWithdraw.length > 0) {
+    const withdraw = readCombined(args.binanceWithdraw);
+    const spot = readCombined(args.binanceSpot);
+    const auto = readCombined(args.binanceAuto);
+    const convert =
+      args.binanceConvert.length > 0
+        ? readCombined(args.binanceConvert)
+        : { text: "", fileNames: [] as string[] };
+    const preview = previewBinanceImport(db, withdraw.text, "withdraw", {
+      spotCsv: spot.text,
+      convertCsv: convert.text || undefined,
+      autoInvestCsv: auto.text,
+    });
+    const noteSummary = summarizeImportNotes(preview.errors);
+    const notes = preview.errors.map((e) => e.message);
+    const result = commitImportWithBatch(db, preview.toInsert, {
+      name: "Binance Withdraw",
+      broker: "binance",
+      sourceDetail: "withdraw",
+      fileNames: withdraw.fileNames,
+      duplicates: preview.duplicates.length,
+      closedCount: noteSummary.closed,
+      skippedCount: noteSummary.skipped,
+      notes,
+      withdrawals: preview.withdrawals,
+      replaceSymbols: preview.replaceSymbols,
+    });
+    console.log(
+      "BINANCE_WITHDRAW",
+      JSON.stringify({
+        inserted: result.inserted,
+        batchId: result.batchId,
+        toInsert: preview.toInsert.length,
+        withdrawals: preview.withdrawals?.length ?? 0,
+        withCost:
+          preview.withdrawals?.filter((w) => w.costBasis != null).length ?? 0,
+        replaceSymbols: preview.replaceSymbols,
         errors: preview.errors.length,
         noteSummary,
       }),

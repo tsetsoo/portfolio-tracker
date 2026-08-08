@@ -1,7 +1,11 @@
 import { WalletsManager } from "@/components/WalletsManager";
 import { getDb } from "@/lib/db/client";
 import {
+  costCoverageRatio,
+} from "@/lib/wallets/cost-coverage";
+import {
   countTransfersByWallet,
+  listTokenBalancesForWallet,
   listWalletTransfers,
   listWallets,
 } from "@/lib/wallets/repo";
@@ -30,10 +34,17 @@ export default function WalletsPage() {
 
   const walletItems = wallets.map((wallet) => {
     const stats = counts.get(wallet.id) ?? { total: 0, mismatches: 0 };
+    const transfers = transfersByWallet[wallet.id] ?? [];
     return {
       ...wallet,
       transferCount: stats.total,
       mismatchCount: stats.mismatches,
+      tokens: listTokenBalancesForWallet(db, wallet.id),
+      costCoverage: costCoverageRatio(
+        wallet.balance,
+        transfers,
+        wallet.balanceAsset,
+      ),
     };
   });
 
@@ -44,8 +55,8 @@ export default function WalletsPage() {
         <h1>Wallets</h1>
         <p>
           Track ETH/BTC/BCH addresses separately from portfolio value. Scan
-          Crypto.com withdrawal hashes to resolve destinations and flag amount
-          mismatches.
+          exchange withdrawal hashes to resolve destinations, attach FIFO cost,
+          and surface significant ERC-20 balances.
         </p>
       </header>
 
@@ -62,10 +73,10 @@ export default function WalletsPage() {
         </div>
         <p className="section-note">
           Bitcoin is watch-only via account xpub (receive + change). Ethereum
-          and Bitcoin Cash use a normal address. Scan links Crypto.com
-          withdrawal hashes (with FIFO cost from your buys) and flags inbound
-          txs that have no matching import. Binance ledger CSVs have no txids
-          yet — use Find missing inflows for those.
+          and Bitcoin Cash use a normal address. Import Crypto.com App history
+          and Binance Withdraw History (with TxIDs) for FIFO cost on transfers.
+          ERC-20 tokens worth ≥ €10 (e.g. LINK) appear under ETH wallets after
+          Refresh balances.
         </p>
         <WalletsManager
           wallets={walletItems}

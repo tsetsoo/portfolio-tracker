@@ -24,6 +24,9 @@ type MempoolAddress = {
 };
 
 const MEMPOOL_BASE = "https://mempool.space/api";
+const BLOCKSTREAM_BASE = "https://blockstream.info/api";
+
+const BALANCE_APIS = [BLOCKSTREAM_BASE, MEMPOOL_BASE];
 
 export function pickClosestBtcOutput(
   csvAmountBtc: number,
@@ -60,10 +63,22 @@ export async function resolveBtcTransaction(
   } = {},
 ): Promise<BtcTxResolution | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const base = options.baseUrl ?? MEMPOOL_BASE;
-  const response = await fetchImpl(`${base}/tx/${txHash.toLowerCase()}`);
-  if (!response.ok) return null;
-  const tx = (await response.json()) as MempoolTx;
+  const bases = options.baseUrl ? [options.baseUrl] : BALANCE_APIS;
+  const hash = txHash.toLowerCase();
+
+  let tx: MempoolTx | null = null;
+  for (const base of bases) {
+    try {
+      const response = await fetchImpl(`${base}/tx/${hash}`);
+      if (!response.ok) continue;
+      tx = (await response.json()) as MempoolTx;
+      break;
+    } catch {
+      // try next API
+    }
+  }
+  if (!tx) return null;
+
   const outputs = (tx.vout ?? [])
     .filter(
       (vout): vout is MempoolVout & { scriptpubkey_address: string; value: number } =>
@@ -87,18 +102,41 @@ export async function resolveBtcTransaction(
   return pickClosestBtcOutput(csvAmountBtc, outputs);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function fetchBtcBalance(
   address: string,
-  options: { fetchImpl?: typeof fetch; baseUrl?: string } = {},
+  options: {
+    fetchImpl?: typeof fetch;
+    baseUrl?: string;
+    /** Delay before request (rate-limit pacing). */
+    throttleMs?: number;
+  } = {},
 ): Promise<number> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const base = options.baseUrl ?? MEMPOOL_BASE;
-  const response = await fetchImpl(`${base}/address/${address}`);
-  if (!response.ok) {
-    throw new Error(`mempool.space HTTP ${response.status}`);
+  if (options.throttleMs && options.throttleMs > 0) {
+    await sleep(options.throttleMs);
   }
-  const body = (await response.json()) as MempoolAddress;
-  const funded = body.chain_stats?.funded_txo_sum ?? 0;
-  const spent = body.chain_stats?.spent_txo_sum ?? 0;
-  return (funded - spent) / 1e8;
+  const bases = options.baseUrl ? [options.baseUrl] : BALANCE_APIS;
+  let lastError: unknown;
+  for (const base of bases) {
+    try {
+      const response = await fetchImpl(`${base}/address/${address}`);
+      if (!response.ok) {
+        lastError = new Error(`${base} HTTP ${response.status}`);
+        continue;
+      }
+      const body = (await response.json()) as MempoolAddress;
+      const funded = body.chain_stats?.funded_txo_sum ?? 0;
+      const spent = body.chain_stats?.spent_txo_sum ?? 0;
+      return (funded - spent) / 1e8;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Bitcoin balance APIs unavailable");
 }

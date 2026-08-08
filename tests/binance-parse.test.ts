@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseBinanceAutoInvestCsv, parseBinanceTradesCsv } from "@/lib/binance/parse";
+import { parseBinanceAutoInvestCsv, parseBinanceConvertCsv, parseBinanceTradesCsv } from "@/lib/binance/parse";
 
 const fixturePath = path.join(
   __dirname,
@@ -200,6 +200,58 @@ describe("parseBinanceAutoInvestCsv", () => {
 
   it("returns a header error for non Auto-Invest CSVs", () => {
     const result = parseBinanceAutoInvestCsv(
+      "Date(UTC),Pair,Side,Price,Executed\n2025-01-01,BTCUSDT,BUY,1,1\n",
+    );
+    expect(result.rows).toEqual([]);
+    expect(
+      result.errors.some((e) => e.message.toLowerCase().includes("header")),
+    ).toBe(true);
+  });
+});
+
+describe("parseBinanceConvertCsv", () => {
+  it("parses successful Convert buys into crypto lots", () => {
+    const csv = readFileSync(
+      path.join(__dirname, "fixtures", "binance-convert-sample.csv"),
+      "utf8",
+    );
+    const result = parseBinanceConvertCsv(csv);
+
+    expect(result.rows).toHaveLength(4);
+    expect(result.rows[0]).toMatchObject({
+      symbol: "BTC",
+      quantity: 0.00821509,
+      costCurrency: "EUR",
+      purchasedAt: "2021-07-20",
+      fees: 0,
+      externalTradeId: expect.stringMatching(/^binance-convert:/),
+    });
+    expect(result.rows[0].costPerUnit).toBeCloseTo(210 / 0.00821509);
+
+    expect(result.rows[2]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.00054026,
+      costCurrency: "USDC",
+      purchasedAt: "2025-12-21",
+    });
+
+    expect(result.rows[3]).toMatchObject({
+      symbol: "ETH",
+      quantity: 0.0014078,
+      costCurrency: "BNB",
+      purchasedAt: "2026-03-06",
+    });
+
+    expect(
+      result.errors.some((e) => e.message.toLowerCase().includes("failed")),
+    ).toBe(true);
+    expect(
+      result.errors.some((e) => /stable buy/i.test(e.message)),
+    ).toBe(true);
+  });
+
+  it("returns a header error for non Convert CSVs", () => {
+    const result = parseBinanceConvertCsv(
       "Date(UTC),Pair,Side,Price,Executed\n2025-01-01,BTCUSDT,BUY,1,1\n",
     );
     expect(result.rows).toEqual([]);

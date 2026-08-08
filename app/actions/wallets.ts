@@ -9,11 +9,14 @@ import {
   countTransfersByWallet,
   createManualWallet,
   deleteWallet,
+  listTokenBalancesForWallet,
   listWalletTransfers,
   listWallets,
   setBtcXpubWallet,
+  updateTransferCost,
   updateWalletLabel,
 } from "@/lib/wallets/repo";
+import { costCoverageRatio } from "@/lib/wallets/cost-coverage";
 import { findOrphanInflows } from "@/lib/wallets/orphans";
 import {
   refreshWalletBalances,
@@ -22,8 +25,10 @@ import {
 } from "@/lib/wallets/sync";
 import type {
   OrphanInflow,
+  TransferCostStatus,
   Wallet,
   WalletChain,
+  WalletTokenBalance,
   WalletTransfer,
 } from "@/lib/wallets/types";
 import { isValidBchAddress, normalizeBchAddress } from "@/lib/wallets/bch";
@@ -35,6 +40,8 @@ import {
 export type WalletListItem = Wallet & {
   transferCount: number;
   mismatchCount: number;
+  tokens: WalletTokenBalance[];
+  costCoverage: number;
 };
 
 function revalidateWallets() {
@@ -44,14 +51,51 @@ function revalidateWallets() {
 export async function listTrackedWallets(): Promise<WalletListItem[]> {
   const db = getDb();
   const counts = countTransfersByWallet(db);
+  const transfers = listWalletTransfers(db);
   return listWallets(db).map((wallet) => {
     const stats = counts.get(wallet.id) ?? { total: 0, mismatches: 0 };
+    const walletTransfers = transfers.filter((t) => t.walletId === wallet.id);
     return {
       ...wallet,
       transferCount: stats.total,
       mismatchCount: stats.mismatches,
+      tokens: listTokenBalancesForWallet(db, wallet.id),
+      costCoverage: costCoverageRatio(
+        wallet.balance,
+        walletTransfers,
+        wallet.balanceAsset,
+      ),
     };
   });
+}
+
+export async function markTransferGiftAction(transferId: string): Promise<void> {
+  updateTransferCost(getDb(), transferId, {
+    costBasis: null,
+    costCurrency: null,
+    costStatus: "gift",
+    costNotes: "Marked as gift / unknown source",
+  });
+  revalidateWallets();
+}
+
+export async function setTransferManualCostAction(
+  transferId: string,
+  costBasis: number,
+  costCurrency: string,
+): Promise<void> {
+  if (!Number.isFinite(costBasis) || costBasis < 0) {
+    throw new Error("Invalid cost basis");
+  }
+  const currency = costCurrency.trim().toUpperCase();
+  if (!currency) throw new Error("Cost currency required");
+  updateTransferCost(getDb(), transferId, {
+    costBasis,
+    costCurrency: currency,
+    costStatus: "costed" satisfies TransferCostStatus,
+    costNotes: "Manual cost override",
+  });
+  revalidateWallets();
 }
 
 export async function listTransfersForWallet(

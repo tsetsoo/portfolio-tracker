@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import Papa from "papaparse";
 
 import {
+  createFifoFxLookup,
   netFillsFifo,
   sortKeyFromDate,
+  type FifoFxLookup,
   type LotFill,
   type LotRow,
 } from "@/lib/import/fifo-net";
@@ -18,6 +20,11 @@ export type WithdrawalCost = {
   quantity: number;
   costBasis: number;
   costCurrency: string;
+  partial?: boolean;
+};
+
+export type ParseCryptoComOptions = {
+  fx?: FifoFxLookup | null;
 };
 
 export type ParseResult = {
@@ -187,6 +194,7 @@ function pushSell(
 function parseAppExport(
   records: Record<string, string>[],
   fields: string[],
+  fx?: FifoFxLookup | null,
 ): ParseResult {
   const errors: Array<{ line: number; message: string }> = [];
   const fills: LotFill[] = [];
@@ -542,7 +550,7 @@ function parseAppExport(
     }
   });
 
-  const netted = netFillsFifo(fills);
+  const netted = netFillsFifo(fills, fx);
   const withdrawalCosts: WithdrawalCost[] = netted.consumed
     .filter(
       (row) =>
@@ -556,6 +564,7 @@ function parseAppExport(
       quantity: row.quantity,
       costBasis: row.costBasis,
       costCurrency: row.costCurrency,
+      partial: row.partial,
     }));
   return {
     rows: netted.rows,
@@ -567,6 +576,7 @@ function parseAppExport(
 function parseExchangeExport(
   records: Record<string, string>[],
   fields: string[],
+  fx?: FifoFxLookup | null,
 ): ParseResult {
   const errors: Array<{ line: number; message: string }> = [];
   const fills: LotFill[] = [];
@@ -675,7 +685,7 @@ function parseExchangeExport(
     }
   });
 
-  const netted = netFillsFifo(fills);
+  const netted = netFillsFifo(fills, fx);
   return {
     rows: netted.rows,
     errors: [...errors, ...netted.errors],
@@ -683,7 +693,13 @@ function parseExchangeExport(
   };
 }
 
-export function parseCryptoComTradesCsv(csvText: string): ParseResult {
+export function parseCryptoComTradesCsv(
+  csvText: string,
+  options: ParseCryptoComOptions = {},
+): ParseResult {
+  const fx =
+    options.fx ??
+    createFifoFxLookup({ baseCurrency: "EUR" });
   const trimmed = csvText.trim();
   if (trimmed === "") {
     return {
@@ -706,7 +722,7 @@ export function parseCryptoComTradesCsv(csvText: string): ParseResult {
   }));
 
   if (isAppExport(fields)) {
-    const result = parseAppExport(parsed.data, fields);
+    const result = parseAppExport(parsed.data, fields, fx);
     return {
       rows: result.rows,
       errors: [...parseErrors, ...result.errors],
@@ -715,7 +731,7 @@ export function parseCryptoComTradesCsv(csvText: string): ParseResult {
   }
 
   if (isExchangeExport(fields)) {
-    const result = parseExchangeExport(parsed.data, fields);
+    const result = parseExchangeExport(parsed.data, fields, fx);
     return {
       rows: result.rows,
       errors: [...parseErrors, ...result.errors],
@@ -739,12 +755,14 @@ export function parseCryptoComTradesCsv(csvText: string): ParseResult {
 
 /** Match FIFO withdrawal costs onto extracted on-chain withdrawal rows by tx hash. */
 export function attachWithdrawalCosts(
-  withdrawals: import("@/lib/wallets/types").CryptoComWithdrawalRow[],
+  withdrawals: import("@/lib/wallets/types").ExchangeWithdrawalRow[],
   costs: WithdrawalCost[],
-): import("@/lib/wallets/types").CryptoComWithdrawalRow[] {
+): import("@/lib/wallets/types").ExchangeWithdrawalRow[] {
   const byHash = new Map<string, WithdrawalCost>();
   for (const cost of costs) {
-    const raw = cost.externalTradeId.replace(/^cryptocom:/i, "").toLowerCase();
+    const raw = cost.externalTradeId
+      .replace(/^(cryptocom|binance):/i, "")
+      .toLowerCase();
     byHash.set(raw, cost);
     byHash.set(cost.externalTradeId.toLowerCase(), cost);
   }
@@ -757,6 +775,10 @@ export function attachWithdrawalCosts(
       ...row,
       costBasis: cost.costBasis,
       costCurrency: cost.costCurrency,
+      costStatus: cost.partial ? "partial" : "costed",
+      costNotes: cost.partial
+        ? "Mixed lot currencies; some FX rates missing"
+        : row.costNotes,
     };
   });
 }

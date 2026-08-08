@@ -50,6 +50,14 @@ const BINANCE_FORMAT_COPY: Record<
     title: "Select Binance Auto-Invest History CSV(s)",
     hint: "Orders → Earn History → Auto-Invest → Export. Only Success rows become crypto lots (cost = amount ÷ units). Multiple files are combined. This does not import deposits from other exchanges.",
   },
+  convert: {
+    title: "Select Binance Convert Order History CSV(s)",
+    hint: "Orders → Convert → Order History → Export. Successful buys of crypto (not fiat) become lots; cost = sell amount ÷ buy amount. Spot Trade History does not include Convert fills.",
+  },
+  withdraw: {
+    title: "Select Binance Withdraw History CSV(s)",
+    hint: "Wallet → Withdraw → Export Withdraw History (includes TxID). FIFO-consumes open Binance lots already imported (Spot / Auto-Invest / Convert) and writes wallet transfers with cost. Import buy histories first.",
+  },
 };
 
 function sourceDetailFor(
@@ -108,11 +116,15 @@ async function commitForBroker(
   switch (broker) {
     case "ibkr":
       return commitIbkrRows(rows as never, meta);
-    case "binance":
+    case "binance": {
+      const binancePreview = preview as BinanceImportPreview;
       return commitBinanceRows(rows as never, {
         ...meta,
         sourceDetail: binanceFormat,
+        withdrawals: binancePreview.withdrawals,
+        replaceSymbols: binancePreview.replaceSymbols,
       });
+    }
     case "cryptocom": {
       const cdcPreview = preview as CryptoComImportPreview;
       return commitCryptoComRows(rows as never, {
@@ -140,7 +152,7 @@ export function ImportWizard() {
   const copy = brokerCopy(broker, binanceFormat);
   const noteSummary = preview ? summarizeImportNotes(preview.errors) : null;
   const withdrawalCount =
-    broker === "cryptocom" && preview && "withdrawals" in preview
+    preview && "withdrawals" in preview && preview.withdrawals
       ? preview.withdrawals.length
       : 0;
   const canCommit =
@@ -314,6 +326,32 @@ export function ImportWizard() {
               onClick={() => selectBinanceFormat("auto-invest")}
             >
               Auto-Invest History
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={binanceFormat === "convert"}
+              className={
+                binanceFormat === "convert"
+                  ? styles.formatTabActive
+                  : styles.formatTab
+              }
+              onClick={() => selectBinanceFormat("convert")}
+            >
+              Convert History
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={binanceFormat === "withdraw"}
+              className={
+                binanceFormat === "withdraw"
+                  ? styles.formatTabActive
+                  : styles.formatTab
+              }
+              onClick={() => selectBinanceFormat("withdraw")}
+            >
+              Withdraw History
             </button>
           </div>
         )}

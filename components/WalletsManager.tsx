@@ -6,13 +6,16 @@ import {
   addBchWalletAction,
   addEthWalletAction,
   findMissingInflowsAction,
+  markTransferGiftAction,
   refreshBalancesAction,
   removeWalletAction,
   renameWalletAction,
   scanWithdrawalsAction,
   setBtcXpubAction,
+  setTransferManualCostAction,
   type WalletListItem,
 } from "@/app/actions/wallets";
+import { formatCostCoveragePercent } from "@/lib/wallets/cost-coverage";
 import type {
   OrphanInflow,
   WalletChain,
@@ -434,20 +437,34 @@ export function WalletsManager({
                   </div>
                   <div className="holding-value">
                     <strong>
-                      {wallet.transferCount} linked withdrawal
-                      {wallet.transferCount === 1 ? "" : "s"}
+                      {formatCostCoveragePercent(wallet.costCoverage ?? 0)}
                     </strong>
                     <span
                       className={
                         wallet.mismatchCount > 0 ? "loss" : "muted"
                       }
                     >
+                      {wallet.transferCount} withdrawal
+                      {wallet.transferCount === 1 ? "" : "s"}
                       {wallet.mismatchCount > 0
-                        ? `${wallet.mismatchCount} mismatch`
-                        : "No mismatches"}
+                        ? ` · ${wallet.mismatchCount} mismatch`
+                        : ""}
                     </span>
                   </div>
                 </div>
+
+                {wallet.tokens && wallet.tokens.length > 0 && (
+                  <ul className="wallet-address-list">
+                    {wallet.tokens.map((token) => (
+                      <li key={token.asset}>
+                        {formatQty(token.balance)} {token.asset}
+                        {token.valueBase != null && token.valueCurrency
+                          ? ` · ${formatQty(token.valueBase)} ${token.valueCurrency}`
+                          : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 <div className="managed-holding-actions">
                   <form
@@ -534,9 +551,11 @@ export function WalletsManager({
                             <th>Asset</th>
                             <th className="numeric">CSV amt</th>
                             <th className="numeric">Cost</th>
+                            <th>Cost status</th>
                             <th className="numeric">On-chain</th>
                             <th>Status</th>
                             <th>Tx</th>
+                            <th>Cost actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -553,6 +572,7 @@ export function WalletsManager({
                                   ? `${formatQty(transfer.costBasis)} ${transfer.costCurrency}`
                                   : "—"}
                               </td>
+                              <td>{transfer.costStatus ?? "unknown"}</td>
                               <td className="numeric">
                                 {formatQty(transfer.onchainAmount)}
                               </td>
@@ -576,6 +596,68 @@ export function WalletsManager({
                                 >
                                   view
                                 </a>
+                              </td>
+                              <td>
+                                {(transfer.costStatus === "unknown" ||
+                                  transfer.costStatus == null) && (
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    disabled={isPending}
+                                    onClick={() =>
+                                      run(async () => {
+                                        await markTransferGiftAction(
+                                          transfer.id,
+                                        );
+                                        return "Marked as gift.";
+                                      })
+                                    }
+                                  >
+                                    Gift
+                                  </button>
+                                )}
+                                <form
+                                  className="manual-value-form"
+                                  onSubmit={(event) => {
+                                    event.preventDefault();
+                                    const data = new FormData(
+                                      event.currentTarget,
+                                    );
+                                    const basis = Number(data.get("basis"));
+                                    const currency = String(
+                                      data.get("currency") ?? "EUR",
+                                    );
+                                    run(async () => {
+                                      await setTransferManualCostAction(
+                                        transfer.id,
+                                        basis,
+                                        currency,
+                                      );
+                                      return "Manual cost saved.";
+                                    });
+                                  }}
+                                >
+                                  <input
+                                    name="basis"
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    placeholder="Cost"
+                                    required
+                                    style={{ width: "5rem" }}
+                                  />
+                                  <input
+                                    name="currency"
+                                    defaultValue="EUR"
+                                    style={{ width: "3.5rem" }}
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="secondary-button"
+                                  >
+                                    Set
+                                  </button>
+                                </form>
                               </td>
                             </tr>
                           ))}

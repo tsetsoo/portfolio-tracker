@@ -1,8 +1,16 @@
 import type Database from "better-sqlite3";
 
+import { fetchCoinGeckoQuote } from "@/lib/quotes/crypto-coingecko";
+import { fetchFrankfurterRate } from "@/lib/quotes/fx-frankfurter";
+import { getSettings } from "@/lib/settings";
 import { fetchBchBalance } from "@/lib/wallets/bch";
 import { fetchBtcBalance, resolveBtcTransaction } from "@/lib/wallets/btc";
-import { fetchEthBalance, resolveEthTransaction } from "@/lib/wallets/eth";
+import {
+  ETH_TOKEN_MIN_VALUE_EUR,
+  fetchEthBalance,
+  fetchEthTokenBalances,
+  resolveEthTransaction,
+} from "@/lib/wallets/eth";
 import { classifyAmountMatch } from "@/lib/wallets/match";
 import {
   getBtcXpubWallet,
@@ -10,6 +18,7 @@ import {
   listAddressesForWallet,
   listPendingTransfers,
   listWallets,
+  replaceWalletTokenBalances,
   syncBtcDerivedAddresses,
   updateAddressBalance,
   updateTransferResolution,
@@ -29,18 +38,22 @@ async function addressHasHistory(
   address: string,
   fetchImpl: typeof fetch,
 ): Promise<boolean> {
-  try {
-    const response = await fetchImpl(
-      `https://mempool.space/api/address/${address}`,
-    );
-    if (!response.ok) return false;
-    const body = (await response.json()) as {
-      chain_stats?: { tx_count?: number };
-    };
-    return (body.chain_stats?.tx_count ?? 0) > 0;
-  } catch {
-    return false;
+  for (const base of [
+    "https://blockstream.info/api",
+    "https://mempool.space/api",
+  ]) {
+    try {
+      const response = await fetchImpl(`${base}/address/${address}`);
+      if (!response.ok) continue;
+      const body = (await response.json()) as {
+        chain_stats?: { tx_count?: number };
+      };
+      return (body.chain_stats?.tx_count ?? 0) > 0;
+    } catch {
+      // try next explorer
+    }
   }
+  return false;
 }
 
 export async function scanWalletWithdrawals(
@@ -191,6 +204,64 @@ export async function refreshWalletBalances(
         const balance = await fetchEthBalance(wallet.address, { fetchImpl });
         updateAddressBalance(db, wallet.id, wallet.address, balance);
         updateWalletBalance(db, wallet.id, balance, "ETH", syncedAt);
+
+        const tokenBalances = await fetchEthTokenBalances(wallet.address, {
+          fetchImpl,
+        });
+        const baseCurrency = getSettings(db).baseCurrency.toUpperCase();
+        const kept: Array<{
+          asset: string;
+          balance: number;
+          valueBase: number | null;
+          valueCurrency: string | null;
+        }> = [];
+        for (const token of tokenBalances) {
+          try {
+            const quote = await fetchCoinGeckoQuote(
+              token.asset,
+              baseCurrency,
+              fetchImpl,
+            );
+            let valueBase = token.balance * quote.price;
+            let valueCurrency = quote.currency.toUpperCase();
+            if (valueCurrency !== baseCurrency) {
+              const fx = await fetchFrankfurterRate(
+                valueCurrency,
+                baseCurrency,
+                fetchImpl,
+              );
+              valueBase *= fx;
+              valueCurrency = baseCurrency;
+            }
+            let valueEur = valueBase;
+            if (valueCurrency !== "EUR") {
+              const toEur = await fetchFrankfurterRate(
+                valueCurrency,
+                "EUR",
+                fetchImpl,
+              );
+              valueEur = valueBase * toEur;
+            }
+            if (valueEur + 1e-9 >= ETH_TOKEN_MIN_VALUE_EUR) {
+              kept.push({
+                asset: token.asset,
+                balance: token.balance,
+                valueBase,
+                valueCurrency,
+              });
+            }
+          } catch {
+            if (token.balance > 0) {
+              kept.push({
+                asset: token.asset,
+                balance: token.balance,
+                valueBase: null,
+                valueCurrency: null,
+              });
+            }
+          }
+        }
+        replaceWalletTokenBalances(db, wallet.id, kept);
       } else if (wallet.chain === "bch") {
         const addresses = listAddressesForWallet(db, wallet.id);
         let total = 0;
@@ -210,8 +281,13 @@ export async function refreshWalletBalances(
           addresses = syncBtcDerivedAddresses(db, wallet.id, used);
         }
         let total = 0;
+        // Pace public explorers only for real network fetches (not unit-test mocks).
+        const throttleMs = options.fetchImpl ? 0 : 400;
         for (const address of addresses) {
-          const balance = await fetchBtcBalance(address, { fetchImpl });
+          const balance = await fetchBtcBalance(address, {
+            fetchImpl,
+            throttleMs,
+          });
           updateAddressBalance(db, wallet.id, address, balance);
           total += balance;
         }

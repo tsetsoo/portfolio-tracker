@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { netFillsFifo, type LotFill } from "@/lib/import/fifo-net";
+import {
+  createFifoFxLookup,
+  netFillsFifo,
+  type LotFill,
+} from "@/lib/import/fifo-net";
 
 describe("netFillsFifo withdrawal cost", () => {
   it("attributes FIFO cost basis to withdrawal fills", () => {
@@ -49,5 +53,66 @@ describe("netFillsFifo withdrawal cost", () => {
       disposition: "withdrawal",
     });
     expect(result.consumed[0]!.costBasis).toBeCloseTo(3000);
+  });
+
+  it("converts mixed EUR/BGN lot costs into base via FX lookup", () => {
+    const fills: LotFill[] = [
+      {
+        line: 2,
+        order: 0,
+        sortKey: "2020-01-01T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "BTC",
+          quantity: 0.5,
+          costPerUnit: 10000,
+          costCurrency: "EUR",
+          purchasedAt: "2020-01-01",
+          fees: 0,
+          externalTradeId: "buy-eur",
+        },
+      },
+      {
+        line: 3,
+        order: 1,
+        sortKey: "2020-06-01T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "BTC",
+          quantity: 0.5,
+          costPerUnit: 19558.3,
+          costCurrency: "BGN",
+          purchasedAt: "2020-06-01",
+          fees: 0,
+          externalTradeId: "buy-bgn",
+        },
+      },
+      {
+        line: 4,
+        order: 2,
+        sortKey: "2021-01-01T10:00:00",
+        side: "SELL",
+        disposition: "withdrawal",
+        row: {
+          symbol: "BTC",
+          quantity: 1,
+          costPerUnit: 0,
+          costCurrency: "EUR",
+          purchasedAt: "2021-01-01",
+          fees: 0,
+          externalTradeId: "cryptocom:0xw",
+        },
+      },
+    ];
+
+    const result = netFillsFifo(
+      fills,
+      createFifoFxLookup({ baseCurrency: "EUR" }),
+    );
+    expect(result.consumed).toHaveLength(1);
+    // 0.5*10000 EUR + 0.5*19558.3 BGN / 1.95583 ≈ 5000 + 5000
+    expect(result.consumed[0]!.costCurrency).toBe("EUR");
+    expect(result.consumed[0]!.costBasis).toBeCloseTo(10000, 0);
+    expect(result.consumed[0]!.partial).toBeFalsy();
   });
 });

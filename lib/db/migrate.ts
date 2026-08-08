@@ -100,12 +100,27 @@ export function migrate(db: Database.Database): void {
       amount REAL NOT NULL,
       tx_hash TEXT NOT NULL UNIQUE,
       transferred_at TEXT NOT NULL,
-      source TEXT NOT NULL CHECK (source IN ('cryptocom','manual')),
+      source TEXT NOT NULL CHECK (source IN ('cryptocom','binance','manual')),
       import_batch_id TEXT,
       onchain_amount REAL,
       onchain_status TEXT NOT NULL DEFAULT 'pending'
         CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
-      notes TEXT
+      notes TEXT,
+      cost_basis REAL,
+      cost_currency TEXT,
+      cost_status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (cost_status IN ('costed','partial','unknown','gift')),
+      cost_notes TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS wallet_token_balances (
+      wallet_id TEXT NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+      asset TEXT NOT NULL,
+      balance REAL NOT NULL,
+      value_base REAL,
+      value_currency TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (wallet_id, asset)
     );
 
     CREATE TABLE IF NOT EXISTS wallet_addresses (
@@ -170,6 +185,39 @@ export function migrate(db: Database.Database): void {
   ) {
     db.exec(`ALTER TABLE wallet_transfers ADD COLUMN cost_currency TEXT`);
   }
+  if (
+    hasColumn(db, "wallet_transfers", "id") &&
+    !hasColumn(db, "wallet_transfers", "cost_status")
+  ) {
+    db.exec(
+      `ALTER TABLE wallet_transfers ADD COLUMN cost_status TEXT NOT NULL DEFAULT 'unknown'`,
+    );
+    db.exec(`
+      UPDATE wallet_transfers
+      SET cost_status = 'costed'
+      WHERE cost_basis IS NOT NULL AND cost_basis > 0
+    `);
+  }
+  if (
+    hasColumn(db, "wallet_transfers", "id") &&
+    !hasColumn(db, "wallet_transfers", "cost_notes")
+  ) {
+    db.exec(`ALTER TABLE wallet_transfers ADD COLUMN cost_notes TEXT`);
+  }
+
+  widenWalletTransferSource(db);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wallet_token_balances (
+      wallet_id TEXT NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+      asset TEXT NOT NULL,
+      balance REAL NOT NULL,
+      value_base REAL,
+      value_currency TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (wallet_id, asset)
+    );
+  `);
 }
 
 /** SQLite CHECK constraints are baked into CREATE TABLE; rebuild when BCH missing. */
@@ -226,16 +274,99 @@ function widenWalletChainChecks(db: Database.Database): void {
         amount REAL NOT NULL,
         tx_hash TEXT NOT NULL UNIQUE,
         transferred_at TEXT NOT NULL,
-        source TEXT NOT NULL CHECK (source IN ('cryptocom','manual')),
+        source TEXT NOT NULL CHECK (source IN ('cryptocom','binance','manual')),
         import_batch_id TEXT,
         onchain_amount REAL,
         onchain_status TEXT NOT NULL DEFAULT 'pending'
           CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
-        notes TEXT
+        notes TEXT,
+        cost_basis REAL,
+        cost_currency TEXT,
+        cost_status TEXT NOT NULL DEFAULT 'unknown'
+          CHECK (cost_status IN ('costed','partial','unknown','gift')),
+        cost_notes TEXT
       );
-      INSERT INTO wallet_transfers_new
+      INSERT INTO wallet_transfers_new (
+        id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
+        source, import_batch_id, onchain_amount, onchain_status, notes,
+        cost_basis, cost_currency, cost_status, cost_notes
+      )
       SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
-             source, import_batch_id, onchain_amount, onchain_status, notes
+             source, import_batch_id, onchain_amount, onchain_status, notes,
+             ${hasColumn(db, "wallet_transfers", "cost_basis") ? "cost_basis" : "NULL"},
+             ${hasColumn(db, "wallet_transfers", "cost_currency") ? "cost_currency" : "NULL"},
+             ${hasColumn(db, "wallet_transfers", "cost_status")
+               ? "cost_status"
+               : hasColumn(db, "wallet_transfers", "cost_basis")
+                 ? "CASE WHEN cost_basis IS NOT NULL AND cost_basis > 0 THEN 'costed' ELSE 'unknown' END"
+                 : "'unknown'"},
+             ${hasColumn(db, "wallet_transfers", "cost_notes") ? "cost_notes" : "NULL"}
+      FROM wallet_transfers;
+      DROP TABLE wallet_transfers;
+      ALTER TABLE wallet_transfers_new RENAME TO wallet_transfers;
+    `);
+  } finally {
+    db.exec(`PRAGMA foreign_keys = ON`);
+  }
+}
+
+function transferSourceAllowsBinance(db: Database.Database): boolean {
+  try {
+    db.prepare(
+      `INSERT INTO wallet_transfers
+         (id, chain, asset, amount, tx_hash, transferred_at, source, onchain_status)
+       VALUES ('__src_probe__', 'eth', 'ETH', 0, '__src_probe_tx__', '1970-01-01', 'binance', 'pending')`,
+    ).run();
+    db.prepare(`DELETE FROM wallet_transfers WHERE id = '__src_probe__'`).run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Rebuild wallet_transfers when source CHECK still omits binance. */
+function widenWalletTransferSource(db: Database.Database): void {
+  if (!hasColumn(db, "wallet_transfers", "id")) return;
+  if (transferSourceAllowsBinance(db)) return;
+
+  db.exec(`PRAGMA foreign_keys = OFF`);
+  try {
+    db.exec(`
+      CREATE TABLE wallet_transfers_new (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT REFERENCES wallets(id) ON DELETE SET NULL,
+        chain TEXT NOT NULL CHECK (chain IN ('eth','btc','bch')),
+        asset TEXT NOT NULL,
+        amount REAL NOT NULL,
+        tx_hash TEXT NOT NULL UNIQUE,
+        transferred_at TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('cryptocom','binance','manual')),
+        import_batch_id TEXT,
+        onchain_amount REAL,
+        onchain_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (onchain_status IN ('pending','matched','mismatch','unresolved','weak')),
+        notes TEXT,
+        cost_basis REAL,
+        cost_currency TEXT,
+        cost_status TEXT NOT NULL DEFAULT 'unknown'
+          CHECK (cost_status IN ('costed','partial','unknown','gift')),
+        cost_notes TEXT
+      );
+      INSERT INTO wallet_transfers_new (
+        id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
+        source, import_batch_id, onchain_amount, onchain_status, notes,
+        cost_basis, cost_currency, cost_status, cost_notes
+      )
+      SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
+             source, import_batch_id, onchain_amount, onchain_status, notes,
+             ${hasColumn(db, "wallet_transfers", "cost_basis") ? "cost_basis" : "NULL"},
+             ${hasColumn(db, "wallet_transfers", "cost_currency") ? "cost_currency" : "NULL"},
+             ${hasColumn(db, "wallet_transfers", "cost_status")
+               ? "cost_status"
+               : hasColumn(db, "wallet_transfers", "cost_basis")
+                 ? "CASE WHEN cost_basis IS NOT NULL AND cost_basis > 0 THEN 'costed' ELSE 'unknown' END"
+                 : "'unknown'"},
+             ${hasColumn(db, "wallet_transfers", "cost_notes") ? "cost_notes" : "NULL"}
       FROM wallet_transfers;
       DROP TABLE wallet_transfers;
       ALTER TABLE wallet_transfers_new RENAME TO wallet_transfers;

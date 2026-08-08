@@ -3,10 +3,12 @@ import type Database from "better-sqlite3";
 
 import { normalizeBchAddress } from "@/lib/wallets/bch";
 import type {
-  CryptoComWithdrawalRow,
+  ExchangeWithdrawalRow,
   OnchainStatus,
+  TransferCostStatus,
   Wallet,
   WalletChain,
+  WalletTokenBalance,
   WalletTransfer,
   WalletTransferSource,
 } from "@/lib/wallets/types";
@@ -44,6 +46,8 @@ type TransferRow = {
   notes: string | null;
   cost_basis: number | null;
   cost_currency: string | null;
+  cost_status: TransferCostStatus;
+  cost_notes: string | null;
 };
 
 function mapWallet(row: WalletRow, addresses: string[]): Wallet {
@@ -79,13 +83,15 @@ function mapTransfer(row: TransferRow): WalletTransfer {
     notes: row.notes,
     costBasis: row.cost_basis,
     costCurrency: row.cost_currency,
+    costStatus: row.cost_status ?? "unknown",
+    costNotes: row.cost_notes,
   };
 }
 
 function transferSelectSql(): string {
   return `SELECT id, wallet_id, chain, asset, amount, tx_hash, transferred_at,
                 source, import_batch_id, onchain_amount, onchain_status, notes,
-                cost_basis, cost_currency
+                cost_basis, cost_currency, cost_status, cost_notes
          FROM wallet_transfers`;
 }
 
@@ -497,9 +503,15 @@ export function deleteWallet(db: Database.Database, id: string): void {
   })();
 }
 
+function inferCostStatus(row: ExchangeWithdrawalRow): TransferCostStatus {
+  if (row.costStatus) return row.costStatus;
+  if (row.costBasis != null && row.costBasis > 0) return "costed";
+  return "unknown";
+}
+
 export function upsertWalletTransfersFromWithdrawals(
   db: Database.Database,
-  withdrawals: CryptoComWithdrawalRow[],
+  withdrawals: ExchangeWithdrawalRow[],
   options: { importBatchId?: string | null; source?: WalletTransferSource } = {},
 ): { upserted: number } {
   const source = options.source ?? "cryptocom";
@@ -507,15 +519,22 @@ export function upsertWalletTransfersFromWithdrawals(
     `INSERT INTO wallet_transfers
        (id, wallet_id, chain, asset, amount, tx_hash, transferred_at, source,
         import_batch_id, onchain_amount, onchain_status, notes,
-        cost_basis, cost_currency)
-     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?)
+        cost_basis, cost_currency, cost_status, cost_notes)
+     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?, ?, ?)
      ON CONFLICT(tx_hash) DO UPDATE SET
        amount = excluded.amount,
        asset = excluded.asset,
        transferred_at = excluded.transferred_at,
+       source = excluded.source,
        import_batch_id = COALESCE(excluded.import_batch_id, wallet_transfers.import_batch_id),
        cost_basis = COALESCE(excluded.cost_basis, wallet_transfers.cost_basis),
-       cost_currency = COALESCE(excluded.cost_currency, wallet_transfers.cost_currency)`,
+       cost_currency = COALESCE(excluded.cost_currency, wallet_transfers.cost_currency),
+       cost_status = CASE
+         WHEN excluded.cost_status IN ('costed','partial','gift') THEN excluded.cost_status
+         WHEN wallet_transfers.cost_status IN ('costed','partial','gift') THEN wallet_transfers.cost_status
+         ELSE excluded.cost_status
+       END,
+       cost_notes = COALESCE(excluded.cost_notes, wallet_transfers.cost_notes)`,
   );
 
   let upserted = 0;
@@ -533,10 +552,97 @@ export function upsertWalletTransfersFromWithdrawals(
       options.importBatchId ?? null,
       row.costBasis ?? null,
       row.costCurrency ?? null,
+      inferCostStatus(row),
+      row.costNotes ?? null,
     );
     upserted += result.changes > 0 ? 1 : 0;
   }
   return { upserted };
+}
+
+export function updateTransferCost(
+  db: Database.Database,
+  id: string,
+  update: {
+    costBasis: number | null;
+    costCurrency: string | null;
+    costStatus: TransferCostStatus;
+    costNotes?: string | null;
+  },
+): void {
+  db.prepare(
+    `UPDATE wallet_transfers
+     SET cost_basis = ?, cost_currency = ?, cost_status = ?, cost_notes = ?
+     WHERE id = ?`,
+  ).run(
+    update.costBasis,
+    update.costCurrency,
+    update.costStatus,
+    update.costNotes ?? null,
+    id,
+  );
+}
+
+export function listTokenBalancesForWallet(
+  db: Database.Database,
+  walletId: string,
+): WalletTokenBalance[] {
+  const rows = db
+    .prepare(
+      `SELECT wallet_id, asset, balance, value_base, value_currency, updated_at
+       FROM wallet_token_balances
+       WHERE wallet_id = ?
+       ORDER BY asset`,
+    )
+    .all(walletId) as Array<{
+    wallet_id: string;
+    asset: string;
+    balance: number;
+    value_base: number | null;
+    value_currency: string | null;
+    updated_at: string;
+  }>;
+  return rows.map((row) => ({
+    walletId: row.wallet_id,
+    asset: row.asset,
+    balance: row.balance,
+    valueBase: row.value_base,
+    valueCurrency: row.value_currency,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export function replaceWalletTokenBalances(
+  db: Database.Database,
+  walletId: string,
+  tokens: Array<{
+    asset: string;
+    balance: number;
+    valueBase: number | null;
+    valueCurrency: string | null;
+  }>,
+): void {
+  const updatedAt = new Date().toISOString();
+  db.transaction(() => {
+    db.prepare(`DELETE FROM wallet_token_balances WHERE wallet_id = ?`).run(
+      walletId,
+    );
+    const insert = db.prepare(
+      `INSERT INTO wallet_token_balances
+         (wallet_id, asset, balance, value_base, value_currency, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const token of tokens) {
+      insert.run(
+        walletId,
+        token.asset.trim().toUpperCase(),
+        token.balance,
+        token.valueBase,
+        token.valueCurrency,
+        updatedAt,
+      );
+    }
+  })();
 }
 
 export function updateTransferResolution(
@@ -587,6 +693,11 @@ export function clearWalletData(db: Database.Database): {
   walletsDeleted: number;
   transfersDeleted: number;
 } {
+  try {
+    db.prepare("DELETE FROM wallet_token_balances").run();
+  } catch {
+    // Table may not exist on very old DBs mid-migrate.
+  }
   const transfersDeleted = db.prepare("DELETE FROM wallet_transfers").run()
     .changes;
   db.prepare("DELETE FROM wallet_addresses").run();
