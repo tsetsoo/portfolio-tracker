@@ -164,7 +164,7 @@ export async function fetchEthTokenBalances(
       )) as string;
       if (!result || result === "0x") continue;
       const raw = BigInt(result);
-      if (raw === 0n) continue;
+      if (raw === BigInt(0)) continue;
       const balance = Number(raw) / 10 ** meta.decimals;
       if (balance > 0) out.push({ asset: meta.asset, balance });
     } catch {
