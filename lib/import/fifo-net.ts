@@ -1,3 +1,5 @@
+import { normalizeFxCurrency } from "@/lib/quotes/fx-aliases";
+
 export type LotRow = {
   symbol: string;
   quantity: number;
@@ -27,6 +29,8 @@ export type FifoConsumed = {
   disposition: "sell" | "withdrawal";
   /** True when some lot costs could not be converted into a single currency. */
   partial?: boolean;
+  /** Quote currencies whose costs could not be converted. */
+  missingCurrencies?: string[];
 };
 
 export type FifoNetResult = {
@@ -39,13 +43,15 @@ export type FifoNetResult = {
 export type FifoFxLookup = {
   baseCurrency: string;
   /** Multiply amount in `from` by this to get base. Same currency → 1. */
-  rateToBase: (fromCurrency: string) => number | null;
+  rateToBase: (fromCurrency: string, asOfDate?: string) => number | null;
 };
 
 const QTY_EPS = 1e-10;
 
 /** Official BGN/EUR peg (1 EUR = 1.95583 BGN) for CDC lots without FX cache. */
 const BGN_PER_EUR = 1.95583;
+
+const FIAT_CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
 
 export function cleanQty(quantity: number): number {
   const rounded = Math.round(quantity * 1e12) / 1e12;
@@ -65,19 +71,28 @@ export function createFifoFxLookup(options: {
   baseCurrency: string;
   /** rate such that amount_to = amount_from * rate for pair (from→to). */
   getRate?: (from: string, to: string) => number | null;
+  /** Dated rate such that amount_to = amount_from * rate. */
+  getDailyRate?: (from: string, to: string, date: string) => number | null;
 }): FifoFxLookup {
-  const base = options.baseCurrency.trim().toUpperCase();
+  const base = normalizeFxCurrency(options.baseCurrency);
   return {
     baseCurrency: base,
-    rateToBase: (fromCurrency: string) => {
-      const from = fromCurrency.trim().toUpperCase();
+    rateToBase: (fromCurrency: string, asOfDate?: string) => {
+      const from = normalizeFxCurrency(fromCurrency);
       if (from === base) return 1;
-      if (options.getRate) {
-        const direct = options.getRate(from, base);
+      if (!FIAT_CURRENCIES.has(from) || !FIAT_CURRENCIES.has(base)) return null;
+
+      const getRate =
+        asOfDate && options.getDailyRate
+          ? (rateFrom: string, rateTo: string) =>
+              options.getDailyRate!(rateFrom, rateTo, asOfDate)
+          : options.getRate;
+      if (getRate) {
+        const direct = getRate(from, base);
         if (direct != null && Number.isFinite(direct) && direct > 0) {
           return direct;
         }
-        const inverse = options.getRate(base, from);
+        const inverse = getRate(base, from);
         if (inverse != null && Number.isFinite(inverse) && inverse > 0) {
           return 1 / inverse;
         }
@@ -89,28 +104,30 @@ export function createFifoFxLookup(options: {
   };
 }
 
-type CostPiece = { currency: string; amount: number };
+type CostPiece = { currency: string; amount: number; purchasedAt: string };
 
 function settleCostPieces(
   pieces: CostPiece[],
   fx?: FifoFxLookup | null,
-): { costBasis: number; costCurrency: string; partial: boolean } | null {
+): {
+  costBasis: number;
+  costCurrency: string;
+  partial: boolean;
+  missingCurrencies: string[];
+} | null {
   if (pieces.length === 0) return null;
 
-  const byCurrency = new Map<string, number>();
-  for (const piece of pieces) {
-    byCurrency.set(
-      piece.currency,
-      (byCurrency.get(piece.currency) ?? 0) + piece.amount,
-    );
-  }
-
-  if (byCurrency.size === 1) {
-    const [currency, amount] = [...byCurrency.entries()][0]!;
-    return { costBasis: amount, costCurrency: currency, partial: false };
-  }
-
   if (!fx) {
+    const currencies = new Set(pieces.map((piece) => piece.currency));
+    if (currencies.size === 1) {
+      return {
+        costBasis: pieces.reduce((sum, piece) => sum + piece.amount, 0),
+        costCurrency: pieces[0]!.currency,
+        partial: false,
+        missingCurrencies: [],
+      };
+    }
+
     // Legacy: no FX — prefer first currency piece only, mark partial.
     const first = pieces[0]!;
     let basis = 0;
@@ -121,24 +138,32 @@ function settleCostPieces(
       costBasis: basis,
       costCurrency: first.currency,
       partial: true,
+      missingCurrencies: [...currencies]
+        .filter((currency) => currency !== first.currency)
+        .sort(),
     };
   }
 
   let basis = 0;
-  let partial = false;
-  for (const [currency, amount] of byCurrency) {
-    const rate = fx.rateToBase(currency);
+  const missingCurrencies = new Set<string>();
+  for (const piece of pieces) {
+    const rate = fx.rateToBase(
+      piece.currency,
+      piece.purchasedAt.slice(0, 10),
+    );
     if (rate == null) {
-      partial = true;
+      missingCurrencies.add(piece.currency.trim().toUpperCase());
       continue;
     }
-    basis += amount * rate;
+    basis += piece.amount * rate;
   }
+  const partial = missingCurrencies.size > 0;
   if (basis <= 0 && partial) return null;
   return {
     costBasis: basis,
     costCurrency: fx.baseCurrency,
     partial,
+    missingCurrencies: [...missingCurrencies].sort(),
   };
 }
 
@@ -187,6 +212,7 @@ export function netFillsFifo(
       pieces.push({
         currency: lot.costCurrency,
         amount: take * lot.costPerUnit + feeShare,
+        purchasedAt: lot.purchasedAt,
       });
 
       if (take + QTY_EPS >= lot.quantity) {
@@ -211,6 +237,10 @@ export function netFillsFifo(
         costCurrency: settled.costCurrency,
         disposition: fill.disposition ?? "sell",
         partial: settled.partial || undefined,
+        missingCurrencies:
+          settled.missingCurrencies.length > 0
+            ? settled.missingCurrencies
+            : undefined,
       });
     }
 

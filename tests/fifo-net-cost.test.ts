@@ -115,4 +115,109 @@ describe("netFillsFifo withdrawal cost", () => {
     expect(result.consumed[0]!.costBasis).toBeCloseTo(10000, 0);
     expect(result.consumed[0]!.partial).toBeFalsy();
   });
+
+  it("converts USDT lots using dated rateToBase(purchasedAt)", () => {
+    const rates: Record<string, number> = { "2021-02-14": 0.83 };
+    const fx = createFifoFxLookup({
+      baseCurrency: "EUR",
+      getDailyRate: (from, to, date) =>
+        from === "USD" && to === "EUR" ? rates[date] ?? null : null,
+    });
+    const fills: LotFill[] = [
+      {
+        line: 2,
+        order: 0,
+        sortKey: "2021-02-14T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "ETH",
+          quantity: 1,
+          costPerUnit: 1000,
+          costCurrency: "USDT",
+          purchasedAt: "2021-02-14",
+          fees: 0,
+          externalTradeId: "buy-usdt",
+        },
+      },
+      {
+        line: 3,
+        order: 1,
+        sortKey: "2021-03-01T10:00:00",
+        side: "SELL",
+        disposition: "withdrawal",
+        row: {
+          symbol: "ETH",
+          quantity: 1,
+          costPerUnit: 0,
+          costCurrency: "EUR",
+          purchasedAt: "2021-03-01",
+          fees: 0,
+          externalTradeId: "wd:0x1",
+        },
+      },
+    ];
+    const result = netFillsFifo(fills, fx);
+    expect(result.consumed[0]!.costBasis).toBeCloseTo(830);
+    expect(result.consumed[0]!.costCurrency).toBe("EUR");
+    expect(result.consumed[0]!.partial).toBeFalsy();
+  });
+
+  it("marks partial and lists missing crypto quote currencies", () => {
+    const fx = createFifoFxLookup({
+      baseCurrency: "EUR",
+      getDailyRate: () => 0.9,
+    });
+    const fills: LotFill[] = [
+      {
+        line: 2,
+        order: 0,
+        sortKey: "2022-01-01T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "BTC",
+          quantity: 0.5,
+          costPerUnit: 10000,
+          costCurrency: "EUR",
+          purchasedAt: "2022-01-01",
+          fees: 0,
+          externalTradeId: "buy-eur",
+        },
+      },
+      {
+        line: 3,
+        order: 1,
+        sortKey: "2022-08-20T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "BTC",
+          quantity: 0.5,
+          costPerUnit: 100,
+          costCurrency: "CRO",
+          purchasedAt: "2022-08-20",
+          fees: 0,
+          externalTradeId: "buy-cro",
+        },
+      },
+      {
+        line: 4,
+        order: 2,
+        sortKey: "2022-08-21T10:00:00",
+        side: "SELL",
+        disposition: "withdrawal",
+        row: {
+          symbol: "BTC",
+          quantity: 1,
+          costPerUnit: 0,
+          costCurrency: "EUR",
+          purchasedAt: "2022-08-21",
+          fees: 0,
+          externalTradeId: "wd:btc",
+        },
+      },
+    ];
+    const result = netFillsFifo(fills, fx);
+    expect(result.consumed[0]!.partial).toBe(true);
+    expect(result.consumed[0]!.costBasis).toBeCloseTo(5000);
+    expect(result.consumed[0]!.missingCurrencies).toEqual(["CRO"]);
+  });
 });
