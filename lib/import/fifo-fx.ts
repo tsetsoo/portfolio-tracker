@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 
+import { getDailyFxRate } from "@/lib/import/fx-daily";
 import {
   createFifoFxLookup,
   type FifoFxLookup,
@@ -23,5 +24,6 @@ export function fifoFxFromDb(db: Database.Database): FifoFxLookup {
         .get(from, to) as { rate: number } | undefined;
       return row?.rate ?? null;
     },
+    getDailyRate: (from, to, date) => getDailyFxRate(db, from, to, date),
   });
 }
