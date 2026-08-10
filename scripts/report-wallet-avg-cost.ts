@@ -48,7 +48,8 @@ function main(): void {
       report.map((row) => ({
         Asset: row.asset,
         "On-chain qty": row.qtyOnChain,
-        "Tax-ready qty": row.qtyCosted,
+        "Costed qty (all ccy)": row.qtyCosted,
+        "Tax-ready qty (EUR)": row.qtyCostedEur,
         "Partial qty": row.qtyPartial,
         "Gift qty": row.qtyGift,
         "Unknown qty": row.qtyUnknown,

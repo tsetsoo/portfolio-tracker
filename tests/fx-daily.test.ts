@@ -35,4 +35,27 @@ describe("fx-daily", () => {
     expect(getDailyFxRate(db, "USD", "EUR", "2022-04-21")).toBe(0.91);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it("continues fetching later dates after an earlier date fails", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ rates: { EUR: 0.93 } }), {
+          status: 200,
+        }),
+      );
+
+    const result = await prefetchUsdEurDailyRates(
+      db,
+      ["2022-04-21", "2022-04-22"],
+      fetchImpl,
+    );
+
+    expect(result.fetched).toBe(1);
+    expect(result.failed).toEqual(["2022-04-21"]);
+    expect(getDailyFxRate(db, "USD", "EUR", "2022-04-21")).toBeNull();
+    expect(getDailyFxRate(db, "USD", "EUR", "2022-04-22")).toBe(0.93);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });

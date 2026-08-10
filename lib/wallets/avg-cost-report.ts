@@ -4,6 +4,8 @@ export type AssetAvgCostRow = {
   asset: string;
   qtyOnChain: number;
   qtyCosted: number;
+  /** Subset of `qtyCosted` costed in EUR — the denominator behind `avgEurTaxReady`. */
+  qtyCostedEur: number;
   qtyPartial: number;
   qtyGift: number;
   qtyUnknown: number;
@@ -20,6 +22,7 @@ const DEFAULT_ASSETS = ["BTC", "ETH", "LINK"];
 
 type TransferTotals = {
   qtyCosted: number;
+  qtyCostedEur: number;
   qtyPartial: number;
   qtyGift: number;
   costEurCosted: number;
@@ -69,6 +72,14 @@ function transferTotals(
       `SELECT
          COALESCE(SUM(CASE WHEN cost_status = 'costed' THEN amount ELSE 0 END), 0)
            AS qtyCosted,
+         COALESCE(SUM(
+           CASE
+             WHEN cost_status = 'costed'
+              AND UPPER(TRIM(cost_currency)) = 'EUR'
+             THEN amount
+             ELSE 0
+           END
+         ), 0) AS qtyCostedEur,
          COALESCE(SUM(CASE WHEN cost_status = 'partial' THEN amount ELSE 0 END), 0)
            AS qtyPartial,
          COALESCE(SUM(CASE WHEN cost_status = 'gift' THEN amount ELSE 0 END), 0)
@@ -128,6 +139,7 @@ export function buildWalletAvgCostReport(
       asset,
       qtyOnChain,
       qtyCosted: totals.qtyCosted,
+      qtyCostedEur: totals.qtyCostedEur,
       qtyPartial: totals.qtyPartial,
       qtyGift: totals.qtyGift,
       qtyUnknown: Math.max(
@@ -136,8 +148,8 @@ export function buildWalletAvgCostReport(
       ),
       costEurCosted: totals.costEurCosted,
       avgEurTaxReady:
-        totals.qtyCosted > 0
-          ? totals.costEurCosted / totals.qtyCosted
+        totals.qtyCostedEur > 0
+          ? totals.costEurCosted / totals.qtyCostedEur
           : null,
       costEurPartial: totals.costEurPartial,
       partialMissingNotes: partialMissingNotes(db, asset),

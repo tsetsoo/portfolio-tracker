@@ -10,7 +10,10 @@
  * This script never wipes wallets, resets the portfolio, or replaces lots —
  * it only recomputes `wallet_transfers.cost_basis` for existing rows, and
  * (via `applyWithdrawalCostsSkippingGift`) never overwrites a transfer
- * already marked `cost_status = 'gift'`.
+ * already marked `cost_status = 'gift'`, a row carrying a manual cost
+ * override note, or a good `costed` row with a proposed `partial`/zero-basis
+ * value (see I1/I2 in the final review). `--apply` is also refused outright
+ * if the FX prefetch had any failed dates.
  *
  * Dry-run by default; pass --apply to persist.
  *
@@ -333,6 +336,19 @@ async function main() {
 
     if (!args.apply) {
       console.log("\nDry-run complete. Re-run with --apply to persist.");
+      return;
+    }
+
+    // Strict: a partial FX prefetch means some proposed rows may be
+    // under-costed (missing a historical rate) — refuse to apply rather than
+    // risk writing incomplete costs for those dates.
+    if (prefetch.failed.length > 0) {
+      console.error(
+        `\nAPPLY REFUSED: FX prefetch failed for ${prefetch.failed.length} date(s) ` +
+          `(${prefetch.failed.join(", ")}). Re-run once Frankfurter is reachable for ` +
+          `all dates before using --apply.`,
+      );
+      process.exitCode = 1;
       return;
     }
 

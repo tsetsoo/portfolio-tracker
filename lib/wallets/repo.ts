@@ -584,40 +584,93 @@ export function updateTransferCost(
   );
 }
 
+/** How `setTransferManualCostAction` marks a manually-overridden cost. */
+const MANUAL_COST_OVERRIDE_NOTE = "manual cost override";
+
+/** True if `costNotes` looks like a manual override written via the UI action. */
+function isManualCostOverrideNote(costNotes: string | null): boolean {
+  if (!costNotes) return false;
+  return costNotes.toLowerCase().includes(MANUAL_COST_OVERRIDE_NOTE);
+}
+
+/**
+ * True if applying `proposed` over `existing` would downgrade an already
+ * well-costed row to `partial` or to a zero cost basis. Never true if the
+ * existing row's basis was already zero/unset — there is nothing to protect.
+ */
+function isCostDowngrade(
+  existing: { cost_status: string; cost_basis: number | null },
+  proposed: Pick<ExchangeWithdrawalRow, "costBasis" | "costStatus">,
+): boolean {
+  const existingIsGoodCosted =
+    existing.cost_status === "costed" &&
+    existing.cost_basis != null &&
+    existing.cost_basis > 0;
+  if (!existingIsGoodCosted) return false;
+  const proposedIsPartial = proposed.costStatus === "partial";
+  const proposedIsZeroBasis = (proposed.costBasis ?? 0) === 0;
+  return proposedIsPartial || proposedIsZeroBasis;
+}
+
 export function applyWithdrawalCostsSkippingGift(
   db: Database.Database,
   withdrawals: ExchangeWithdrawalRow[],
-): { updated: number; skippedGift: number; unmatched: number } {
+): {
+  updated: number;
+  skippedGift: number;
+  skippedManual: number;
+  skippedDowngrade: number;
+  unmatched: number;
+} {
   let updated = 0;
   let skippedGift = 0;
+  let skippedManual = 0;
+  let skippedDowngrade = 0;
   let unmatched = 0;
   const select = db.prepare(
-    `SELECT id, cost_status FROM wallet_transfers WHERE tx_hash = ?`,
+    `SELECT id, cost_status, cost_basis, cost_notes FROM wallet_transfers WHERE tx_hash = ?`,
   );
-  for (const row of withdrawals) {
-    if (row.costBasis == null || row.costStatus == null) continue;
-    const txHash = normalizeTxHash(row.chain, row.txHash);
-    if (!txHash) continue;
-    const existing = select.get(txHash) as
-      | { id: string; cost_status: string }
-      | undefined;
-    if (!existing) {
-      unmatched += 1;
-      continue;
+
+  db.transaction(() => {
+    for (const row of withdrawals) {
+      if (row.costBasis == null || row.costStatus == null) continue;
+      const txHash = normalizeTxHash(row.chain, row.txHash);
+      if (!txHash) continue;
+      const existing = select.get(txHash) as
+        | {
+            id: string;
+            cost_status: string;
+            cost_basis: number | null;
+            cost_notes: string | null;
+          }
+        | undefined;
+      if (!existing) {
+        unmatched += 1;
+        continue;
+      }
+      if (existing.cost_status === "gift") {
+        skippedGift += 1;
+        continue;
+      }
+      if (isManualCostOverrideNote(existing.cost_notes)) {
+        skippedManual += 1;
+        continue;
+      }
+      if (isCostDowngrade(existing, row)) {
+        skippedDowngrade += 1;
+        continue;
+      }
+      updateTransferCost(db, existing.id, {
+        costBasis: row.costBasis,
+        costCurrency: row.costCurrency ?? "EUR",
+        costStatus: row.costStatus,
+        costNotes: row.costNotes ?? null,
+      });
+      updated += 1;
     }
-    if (existing.cost_status === "gift") {
-      skippedGift += 1;
-      continue;
-    }
-    updateTransferCost(db, existing.id, {
-      costBasis: row.costBasis,
-      costCurrency: row.costCurrency ?? "EUR",
-      costStatus: row.costStatus,
-      costNotes: row.costNotes ?? null,
-    });
-    updated += 1;
-  }
-  return { updated, skippedGift, unmatched };
+  })();
+
+  return { updated, skippedGift, skippedManual, skippedDowngrade, unmatched };
 }
 
 /** Persist an unmatched on-chain inflow as a manual gift (zero cost basis). */
