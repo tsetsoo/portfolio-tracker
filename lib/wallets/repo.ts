@@ -584,6 +584,42 @@ export function updateTransferCost(
   );
 }
 
+export function applyWithdrawalCostsSkippingGift(
+  db: Database.Database,
+  withdrawals: ExchangeWithdrawalRow[],
+): { updated: number; skippedGift: number; unmatched: number } {
+  let updated = 0;
+  let skippedGift = 0;
+  let unmatched = 0;
+  const select = db.prepare(
+    `SELECT id, cost_status FROM wallet_transfers WHERE tx_hash = ?`,
+  );
+  for (const row of withdrawals) {
+    if (row.costBasis == null || row.costStatus == null) continue;
+    const txHash = normalizeTxHash(row.chain, row.txHash);
+    if (!txHash) continue;
+    const existing = select.get(txHash) as
+      | { id: string; cost_status: string }
+      | undefined;
+    if (!existing) {
+      unmatched += 1;
+      continue;
+    }
+    if (existing.cost_status === "gift") {
+      skippedGift += 1;
+      continue;
+    }
+    updateTransferCost(db, existing.id, {
+      costBasis: row.costBasis,
+      costCurrency: row.costCurrency ?? "EUR",
+      costStatus: row.costStatus,
+      costNotes: row.costNotes ?? null,
+    });
+    updated += 1;
+  }
+  return { updated, skippedGift, unmatched };
+}
+
 /** Persist an unmatched on-chain inflow as a manual gift (zero cost basis). */
 export function markOrphanInflowAsGift(
   db: Database.Database,
