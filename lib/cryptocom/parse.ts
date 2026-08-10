@@ -21,6 +21,7 @@ export type WithdrawalCost = {
   costBasis: number;
   costCurrency: string;
   partial?: boolean;
+  missingCurrencies?: string[];
 };
 
 export type ParseCryptoComOptions = {
@@ -565,6 +566,7 @@ function parseAppExport(
       costBasis: row.costBasis,
       costCurrency: row.costCurrency,
       partial: row.partial,
+      missingCurrencies: row.missingCurrencies,
     }));
   return {
     rows: netted.rows,
@@ -777,7 +779,9 @@ export function attachWithdrawalCosts(
       costCurrency: cost.costCurrency,
       costStatus: cost.partial ? "partial" : "costed",
       costNotes: cost.partial
-        ? "Mixed lot currencies; some FX rates missing"
+        ? cost.missingCurrencies?.length
+          ? `Mixed lot currencies; missing FX for: ${cost.missingCurrencies.join(", ")}`
+          : "Mixed lot currencies; some FX rates missing"
         : row.costNotes,
     };
   });

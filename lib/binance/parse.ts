@@ -517,6 +517,7 @@ export function parseBinanceUnifiedWithdraw(input: {
       costBasis: row.costBasis,
       costCurrency: row.costCurrency,
       partial: row.partial,
+      missingCurrencies: row.missingCurrencies,
     }));
 
   const transferRows = extracted.map((wd) => ({
