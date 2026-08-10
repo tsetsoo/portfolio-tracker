@@ -158,7 +158,6 @@ function settleCostPieces(
     basis += piece.amount * rate;
   }
   const partial = missingCurrencies.size > 0;
-  if (basis <= 0 && partial) return null;
   return {
     costBasis: basis,
     costCurrency: fx.baseCurrency,

@@ -220,4 +220,53 @@ describe("netFillsFifo withdrawal cost", () => {
     expect(result.consumed[0]!.costBasis).toBeCloseTo(5000);
     expect(result.consumed[0]!.missingCurrencies).toEqual(["CRO"]);
   });
+
+  it("emits a zero-basis partial settlement when every FX rate is missing", () => {
+    const fills: LotFill[] = [
+      {
+        line: 2,
+        order: 0,
+        sortKey: "2022-08-20T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "BTC",
+          quantity: 1,
+          costPerUnit: 100,
+          costCurrency: "CRO",
+          purchasedAt: "2022-08-20",
+          fees: 0,
+          externalTradeId: "buy-cro",
+        },
+      },
+      {
+        line: 3,
+        order: 1,
+        sortKey: "2022-08-21T10:00:00",
+        side: "SELL",
+        disposition: "withdrawal",
+        row: {
+          symbol: "BTC",
+          quantity: 1,
+          costPerUnit: 0,
+          costCurrency: "EUR",
+          purchasedAt: "2022-08-21",
+          fees: 0,
+          externalTradeId: "wd:btc",
+        },
+      },
+    ];
+
+    const result = netFillsFifo(
+      fills,
+      createFifoFxLookup({ baseCurrency: "EUR" }),
+    );
+
+    expect(result.consumed).toHaveLength(1);
+    expect(result.consumed[0]).toMatchObject({
+      costBasis: 0,
+      costCurrency: "EUR",
+      partial: true,
+      missingCurrencies: ["CRO"],
+    });
+  });
 });
