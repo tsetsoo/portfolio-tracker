@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import { getDb } from "@/lib/db/client";
 import { fetchCoinGeckoQuote } from "@/lib/quotes/crypto-coingecko";
 import { fetchYahooQuote } from "@/lib/quotes/equity-yahoo";
+import { normalizeFxCurrency } from "@/lib/quotes/fx-aliases";
 import { fetchFrankfurterRate } from "@/lib/quotes/fx-frankfurter";
 import type {
   AssetClass,
@@ -14,20 +15,6 @@ import type {
 } from "@/lib/quotes/types";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
-
-/** Stablecoins → USD for ECB FX (Frankfurter has no USDT/USDC). */
-const FX_ALIASES: Record<string, string> = {
-  USDT: "USD",
-  USDC: "USD",
-  BUSD: "USD",
-  TUSD: "USD",
-  FDUSD: "USD",
-};
-
-function normalizeFxCurrency(code: string): string {
-  const upper = code.toUpperCase();
-  return FX_ALIASES[upper] ?? upper;
-}
 
 interface PriceCacheRow {
   price: number;
