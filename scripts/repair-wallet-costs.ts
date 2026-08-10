@@ -133,6 +133,23 @@ function mergeWithdrawals(
   return [...byKey.values()];
 }
 
+type GateRow = {
+  tx_hash: string;
+  amount: number;
+  cost_basis: number | null;
+  cost_currency: string | null;
+  cost_status: string;
+};
+
+function readGateRow(db: Database.Database): GateRow | undefined {
+  return db
+    .prepare(
+      `SELECT tx_hash, amount, cost_basis, cost_currency, cost_status
+       FROM wallet_transfers WHERE tx_hash LIKE ?`,
+    )
+    .get(`${GATE_TX_HASH_PREFIX}%`) as GateRow | undefined;
+}
+
 /** Read current + proposed cost for the sanity-gate tx (null if not found). */
 function inspectGateTx(
   db: Database.Database,
@@ -140,28 +157,17 @@ function inspectGateTx(
 ): {
   txHash: string | null;
   currentEurPerUnit: number | null;
+  currentStatus: string | null;
   proposedEurPerUnit: number | null;
   proposedStatus: string | null;
 } {
-  const existing = db
-    .prepare(
-      `SELECT tx_hash, amount, cost_basis, cost_currency, cost_status
-       FROM wallet_transfers WHERE tx_hash LIKE ?`,
-    )
-    .get(`${GATE_TX_HASH_PREFIX}%`) as
-    | {
-        tx_hash: string;
-        amount: number;
-        cost_basis: number | null;
-        cost_currency: string | null;
-        cost_status: string;
-      }
-    | undefined;
+  const existing = readGateRow(db);
 
   if (!existing) {
     return {
       txHash: null,
       currentEurPerUnit: null,
+      currentStatus: null,
       proposedEurPerUnit: null,
       proposedStatus: null,
     };
@@ -183,9 +189,32 @@ function inspectGateTx(
   return {
     txHash: existing.tx_hash,
     currentEurPerUnit,
+    currentStatus: existing.cost_status,
     proposedEurPerUnit,
     proposedStatus: proposed?.costStatus ?? null,
   };
+}
+
+/** Post-apply re-read: confirm the gate tx actually landed >= threshold and non-gift. */
+function verifyGateAfterApply(db: Database.Database): {
+  ok: boolean;
+  txHash: string | null;
+  eurPerUnit: number | null;
+  status: string | null;
+} {
+  const row = readGateRow(db);
+  if (!row) {
+    return { ok: false, txHash: null, eurPerUnit: null, status: null };
+  }
+  const eurPerUnit =
+    row.cost_basis != null && row.amount > 0
+      ? row.cost_basis / row.amount
+      : null;
+  const ok =
+    row.cost_status !== "gift" &&
+    eurPerUnit != null &&
+    eurPerUnit >= GATE_MIN_EUR_PER_UNIT;
+  return { ok, txHash: row.tx_hash, eurPerUnit, status: row.cost_status };
 }
 
 async function main() {
@@ -199,7 +228,10 @@ async function main() {
     const spotCsv = readCombined(args.binanceSpot);
     const convertCsv = readCombined(args.binanceConvert);
     const autoCsv = readCombined(args.binanceAuto);
-    const cdcTexts = args.cdc.map((p) => readFileSync(p, "utf8"));
+    // Combine all --cdc files into one CSV so FIFO sees the full chronological
+    // buy/sell history in one pass (matches reimport-live.ts) — FIFO-ing each
+    // CDC file in isolation would double-count/miss lots that span files.
+    const cdcCsv = readCombined(args.cdc);
 
     // 1) Prefetch dated USD/EUR FX BEFORE FIFO — FIFO's FX lookup is sync
     // against the DB cache; Frankfurter needs network.
@@ -207,7 +239,7 @@ async function main() {
       binanceSpotCsv: spotCsv,
       binanceConvertCsv: convertCsv,
       binanceAutoCsv: autoCsv,
-      cdcCsvs: cdcTexts,
+      cdcCsvs: cdcCsv ? [cdcCsv] : [],
     });
     console.log(`Prefetching FX for ${purchaseDates.length} unique dates…`);
     const prefetch = await prefetchUsdEurDailyRates(db, purchaseDates, fetch);
@@ -234,13 +266,13 @@ async function main() {
       }
     }
 
-    const cdcWithdrawals: ExchangeWithdrawalRow[] = [];
-    for (const [index, text] of cdcTexts.entries()) {
-      const preview = previewCryptoComImport(db, text);
-      cdcWithdrawals.push(...preview.withdrawals);
+    let cdcWithdrawals: ExchangeWithdrawalRow[] = [];
+    if (cdcCsv.trim()) {
+      const preview = previewCryptoComImport(db, cdcCsv);
+      cdcWithdrawals = preview.withdrawals;
       if (preview.errors.length > 0) {
         console.log(
-          `CDC file ${index + 1} preview: ${preview.errors.length} note(s)`,
+          `CDC (combined ${args.cdc.length} file(s)) preview: ${preview.errors.length} note(s)`,
         );
       }
     }
@@ -269,6 +301,7 @@ async function main() {
     const gate = inspectGateTx(db, merged);
     console.log("\nSanity gate (ETH tx 0xabc4467c…):");
     console.log(`  tx_hash: ${gate.txHash ?? "NOT FOUND IN DB"}`);
+    console.log(`  current status: ${gate.currentStatus ?? "n/a"}`);
     console.log(
       `  current: ${gate.currentEurPerUnit != null ? gate.currentEurPerUnit.toFixed(4) : "n/a"} EUR/unit`,
     );
@@ -278,16 +311,20 @@ async function main() {
 
     const gatePasses =
       gate.txHash != null &&
+      gate.currentStatus !== "gift" &&
       gate.proposedEurPerUnit != null &&
       gate.proposedEurPerUnit >= GATE_MIN_EUR_PER_UNIT;
 
     if (!gatePasses) {
+      const reason =
+        gate.txHash == null
+          ? "tx not found in DB"
+          : gate.currentStatus === "gift"
+            ? "existing row is marked gift"
+            : `proposed cost/unit must be >= ${GATE_MIN_EUR_PER_UNIT} EUR`;
       console.error(
-        `\nGATE FAILED: proposed cost/unit for ${GATE_TX_HASH_PREFIX}… must be >= ${GATE_MIN_EUR_PER_UNIT} EUR.`,
+        `\nGATE FAILED (${reason}) for ${GATE_TX_HASH_PREFIX}…. Refusing --apply.`,
       );
-      if (!args.apply) {
-        console.error("(Dry-run: no changes written. Refusing --apply.)");
-      }
       process.exitCode = 1;
       return;
     }
@@ -302,10 +339,19 @@ async function main() {
     const result = applyWithdrawalCostsSkippingGift(db, merged);
     console.log("\nAPPLY", JSON.stringify(result));
 
-    const gateAfter = inspectGateTx(db, []);
+    // Re-read from DB (not memory) to confirm the write actually landed.
+    const postApply = verifyGateAfterApply(db);
     console.log(
-      `Gate tx after apply: ${gateAfter.currentEurPerUnit != null ? gateAfter.currentEurPerUnit.toFixed(4) : "n/a"} EUR/unit`,
+      `Gate tx after apply: ${postApply.eurPerUnit != null ? postApply.eurPerUnit.toFixed(4) : "n/a"} EUR/unit (status=${postApply.status ?? "n/a"})`,
     );
+    if (!postApply.ok) {
+      console.error(
+        `\nPOST-APPLY GATE FAILED: ${GATE_TX_HASH_PREFIX}… did not land >= ${GATE_MIN_EUR_PER_UNIT} EUR/unit as non-gift after apply.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    console.log("Post-apply gate PASSED.");
   } finally {
     db.close();
   }
