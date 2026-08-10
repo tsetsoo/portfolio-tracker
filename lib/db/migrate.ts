@@ -59,6 +59,15 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY (from_currency, to_currency)
     );
 
+    CREATE TABLE IF NOT EXISTS fx_rates_daily (
+      rate_date TEXT NOT NULL,
+      from_currency TEXT NOT NULL,
+      to_currency TEXT NOT NULL,
+      rate REAL NOT NULL,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (rate_date, from_currency, to_currency)
+    );
+
     CREATE TABLE IF NOT EXISTS snapshots (
       date TEXT PRIMARY KEY,
       total_base REAL NOT NULL,

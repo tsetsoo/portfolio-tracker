@@ -26,6 +26,7 @@ describe("migrate", () => {
         "lots",
         "price_cache",
         "fx_rates",
+        "fx_rates_daily",
         "snapshots",
         "import_batches",
         "wallets",
