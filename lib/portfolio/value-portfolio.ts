@@ -242,7 +242,10 @@ export async function valuePortfolio(
     ? listWalletAssetQuantities(db)
     : [];
 
-  const equityHoldings = holdings.filter((h) => h.type === "equity");
+  const equityHoldings = holdings.filter(
+    (h): h is Holding & { type: "equity"; symbol: string } =>
+      h.type === "equity" && h.symbol != null,
+  );
   const cryptoHoldingSymbols = holdings
     .filter((h) => h.type === "crypto" && h.symbol)
     .map((h) => h.symbol!);
@@ -264,9 +267,8 @@ export async function valuePortfolio(
   const quotes = new Map<string, Quote>();
   await Promise.all(
     equityHoldings.map(async (holding) => {
-      if (holding.symbol === null) return;
       try {
-        const quote = await getQuote(holding.symbol, holding.type, {
+        const quote = await getQuote(holding.symbol, "equity", {
           ...fetchOpts,
           preferredCurrency: holding.quoteCurrency ?? undefined,
         });
