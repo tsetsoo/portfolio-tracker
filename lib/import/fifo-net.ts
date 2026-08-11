@@ -20,6 +20,17 @@ export type LotFill = {
   row: LotRow;
 };
 
+/** One FIFO lot take that funded a sell/withdrawal (pre-FX amounts). */
+export type FifoLotSlice = {
+  lotExternalTradeId: string | null;
+  purchasedAt: string;
+  quantity: number;
+  costCurrency: string;
+  /** Cost in `costCurrency` for this slice (qty × cpu + fee share). */
+  costAmount: number;
+  costPerUnit: number;
+};
+
 export type FifoConsumed = {
   externalTradeId: string | null;
   symbol: string;
@@ -31,6 +42,8 @@ export type FifoConsumed = {
   partial?: boolean;
   /** Quote currencies whose costs could not be converted. */
   missingCurrencies?: string[];
+  /** Lot mix that funded this disposition (for audits / repair dossiers). */
+  lotSlices: FifoLotSlice[];
 };
 
 export type FifoNetResult = {
@@ -80,8 +93,8 @@ export function createFifoFxLookup(options: {
     rateToBase: (fromCurrency: string, asOfDate?: string) => {
       const from = normalizeFxCurrency(fromCurrency);
       if (from === base) return 1;
-      if (!FIAT_CURRENCIES.has(from) || !FIAT_CURRENCIES.has(base)) return null;
 
+      // Prefer cached daily (fiat or crypto→EUR) / spot rates before peg.
       const getRate =
         asOfDate && options.getDailyRate
           ? (rateFrom: string, rateTo: string) =>
@@ -99,6 +112,8 @@ export function createFifoFxLookup(options: {
       }
       if (from === "BGN" && base === "EUR") return 1 / BGN_PER_EUR;
       if (from === "EUR" && base === "BGN") return BGN_PER_EUR;
+      // Without a cached rate, only known fiat pairs can resolve (nothing else).
+      if (!FIAT_CURRENCIES.has(from) || !FIAT_CURRENCIES.has(base)) return null;
       return null;
     },
   };
@@ -203,15 +218,25 @@ export function netFillsFifo(
     let remaining = fill.row.quantity;
     const requested = fill.row.quantity;
     const pieces: CostPiece[] = [];
+    const lotSlices: FifoLotSlice[] = [];
 
     while (remaining > QTY_EPS && queue.length > 0) {
       const lot = queue[0]!;
       const take = Math.min(lot.quantity, remaining);
       const feeShare = lot.quantity > 0 ? (take / lot.quantity) * lot.fees : 0;
+      const costAmount = take * lot.costPerUnit + feeShare;
       pieces.push({
         currency: lot.costCurrency,
-        amount: take * lot.costPerUnit + feeShare,
+        amount: costAmount,
         purchasedAt: lot.purchasedAt,
+      });
+      lotSlices.push({
+        lotExternalTradeId: lot.externalTradeId,
+        purchasedAt: lot.purchasedAt,
+        quantity: take,
+        costCurrency: lot.costCurrency,
+        costAmount,
+        costPerUnit: lot.costPerUnit,
       });
 
       if (take + QTY_EPS >= lot.quantity) {
@@ -240,6 +265,7 @@ export function netFillsFifo(
           settled.missingCurrencies.length > 0
             ? settled.missingCurrencies
             : undefined,
+        lotSlices,
       });
     }
 

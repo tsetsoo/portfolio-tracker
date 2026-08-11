@@ -24,8 +24,8 @@ describe("parseCryptoComTradesCsv", () => {
     expect(eth).toMatchObject({
       symbol: "ETH",
       quantity: 0.5,
-      costPerUnit: 3200,
-      costCurrency: "USDT",
+      costPerUnit: 2960,
+      costCurrency: "EUR",
       purchasedAt: "2025-02-11",
       externalTradeId: "cryptocom:hash-eth-1",
     });

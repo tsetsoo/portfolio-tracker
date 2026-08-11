@@ -1,6 +1,7 @@
 /**
- * Repair wallet transfer cost bases using dated (historical) USD/EUR FX
- * rates, instead of the single "latest" rate used at original import time.
+ * Repair wallet transfer cost bases using dated (historical) FX:
+ * Frankfurter USD→EUR (stables as USD) plus CoinGecko crypto→EUR for
+ * lot quote currencies (CRO, BNB, ADA, …).
  *
  * Re-runs the same Binance unified-withdraw FIFO and Crypto.com FIFO used
  * during import, but with `fx_rates_daily`-backed FX so mixed-currency lots
@@ -38,7 +39,11 @@ import { previewCryptoComImport } from "@/lib/cryptocom/commit";
 import { migrate } from "@/lib/db/migrate";
 import { combineCsvTexts } from "@/lib/import/combine-csv";
 import { collectPurchaseDates } from "@/lib/import/collect-purchase-dates";
-import { prefetchUsdEurDailyRates } from "@/lib/import/fx-daily";
+import { collectCryptoEurNeeds } from "@/lib/import/collect-crypto-fx-needs";
+import {
+  prefetchCryptoEurDailyRates,
+  prefetchUsdEurDailyRates,
+} from "@/lib/import/fx-daily";
 import {
   applyWithdrawalCostsSkippingGift,
   listWalletTransfers,
@@ -253,6 +258,40 @@ async function main() {
       console.log(`  failed dates: ${prefetch.failed.join(", ")}`);
     }
 
+    const cryptoNeeds = collectCryptoEurNeeds({
+      binanceSpotCsv: spotCsv,
+      binanceConvertCsv: convertCsv,
+      binanceAutoCsv: autoCsv,
+      cdcCsvs: cdcCsv ? [cdcCsv] : [],
+    });
+    console.log(
+      `Prefetching crypto→EUR for ${cryptoNeeds.length} symbol@date need(s)…`,
+    );
+    const cryptoPrefetch = await prefetchCryptoEurDailyRates(
+      db,
+      cryptoNeeds,
+      fetch,
+    );
+    console.log(
+      `Crypto FX prefetch: fetched=${cryptoPrefetch.fetched} failed=${cryptoPrefetch.failed.length}` +
+        (cryptoPrefetch.skippedUnknown.length
+          ? ` skippedUnknown=${cryptoPrefetch.skippedUnknown.join(",")}`
+          : ""),
+    );
+    if (cryptoPrefetch.failed.length > 0) {
+      console.log(
+        `  failed: ${cryptoPrefetch.failed.slice(0, 20).join(", ")}` +
+          (cryptoPrefetch.failed.length > 20
+            ? ` …(+${cryptoPrefetch.failed.length - 20})`
+            : ""),
+      );
+    }
+
+    const prefetchFailed = [
+      ...prefetch.failed,
+      ...cryptoPrefetch.failed,
+    ];
+
     // 2) Re-run FIFO with dated FX now cached in the DB.
     const binanceWithdrawals: ExchangeWithdrawalRow[] = [];
     if (withdrawCsv.trim()) {
@@ -342,11 +381,12 @@ async function main() {
     // Strict: a partial FX prefetch means some proposed rows may be
     // under-costed (missing a historical rate) — refuse to apply rather than
     // risk writing incomplete costs for those dates.
-    if (prefetch.failed.length > 0) {
+    if (prefetchFailed.length > 0) {
       console.error(
-        `\nAPPLY REFUSED: FX prefetch failed for ${prefetch.failed.length} date(s) ` +
-          `(${prefetch.failed.join(", ")}). Re-run once Frankfurter is reachable for ` +
-          `all dates before using --apply.`,
+        `\nAPPLY REFUSED: FX prefetch failed for ${prefetchFailed.length} ` +
+          `rate(s) (${prefetchFailed.slice(0, 12).join(", ")}` +
+          `${prefetchFailed.length > 12 ? ", …" : ""}). ` +
+          `Re-run once Frankfurter/CoinGecko succeed for all needs before --apply.`,
       );
       process.exitCode = 1;
       return;

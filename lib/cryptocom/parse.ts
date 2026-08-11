@@ -7,6 +7,7 @@ import {
   netFillsFifo,
   sortKeyFromDate,
   type FifoFxLookup,
+  type FifoLotSlice,
   type LotFill,
   type LotRow,
 } from "@/lib/import/fifo-net";
@@ -22,6 +23,7 @@ export type WithdrawalCost = {
   costCurrency: string;
   partial?: boolean;
   missingCurrencies?: string[];
+  lotSlices?: FifoLotSlice[];
 };
 
 export type ParseCryptoComOptions = {
@@ -375,17 +377,35 @@ function parseAppExport(
           );
         }
 
-        // Receiving crypto → new lot
+        // Receiving crypto → new lot. Prefer Native fiat valuation when present
+        // (CDC App export always provides Native Currency/Amount for exchanges);
+        // otherwise fall back to spent-crypto quantity as the cost currency.
         if (toAmount > 0 && toCurrency && !FIAT.has(toCurrency)) {
-          const cost = Math.abs(fromAmount);
-          if (cost <= 0) {
+          let costAmount = Math.abs(fromAmount);
+          let costCurrency = fromCurrency || "USD";
+          if (nativeCurrencyCol && nativeAmountCol) {
+            const nativeCurrency = String(record[nativeCurrencyCol] ?? "")
+              .trim()
+              .toUpperCase();
+            const nativeRaw = String(record[nativeAmountCol] ?? "").trim();
+            if (nativeCurrency && nativeRaw !== "" && FIAT.has(nativeCurrency)) {
+              const nativeAmount = Math.abs(
+                parseNumber(record[nativeAmountCol], "native amount"),
+              );
+              if (nativeAmount > 0) {
+                costAmount = nativeAmount;
+                costCurrency = nativeCurrency;
+              }
+            }
+          }
+          if (costAmount <= 0) {
             throw new Error("Invalid exchange cost");
           }
           pushBuy(fills, meta, {
             symbol: toCurrency,
             quantity: toAmount,
-            costPerUnit: cost / toAmount,
-            costCurrency: fromCurrency || "USD",
+            costPerUnit: costAmount / toAmount,
+            costCurrency,
             purchasedAt,
             fees: 0,
             externalTradeId: id,
@@ -567,6 +587,7 @@ function parseAppExport(
       costCurrency: row.costCurrency,
       partial: row.partial,
       missingCurrencies: row.missingCurrencies,
+      lotSlices: row.lotSlices,
     }));
   return {
     rows: netted.rows,

@@ -3,6 +3,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@/lib/db/migrate";
 import {
   getDailyFxRate,
+  prefetchCryptoEurDailyRates,
   prefetchUsdEurDailyRates,
   upsertDailyFxRate,
 } from "@/lib/import/fx-daily";
@@ -57,5 +58,32 @@ describe("fx-daily", () => {
     expect(getDailyFxRate(db, "USD", "EUR", "2022-04-21")).toBeNull();
     expect(getDailyFxRate(db, "USD", "EUR", "2022-04-22")).toBe(0.93);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("prefetches crypto→EUR via Binance EUR klines", async () => {
+    const open = Date.parse("2022-08-20T00:00:00.000Z");
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("BNBEUR") && url.includes("klines")) {
+        return new Response(
+          JSON.stringify([
+            [open, "1", "1", "1", "250.5", "1", open + 1, "1", 1, "1", "1", "0"],
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 400 });
+    });
+
+    const result = await prefetchCryptoEurDailyRates(
+      db,
+      [{ symbol: "BNB", date: "2022-08-20" }],
+      fetchImpl,
+      { pauseMs: 0 },
+    );
+
+    expect(result.fetched).toBe(1);
+    expect(result.failed).toEqual([]);
+    expect(getDailyFxRate(db, "BNB", "EUR", "2022-08-20")).toBe(250.5);
   });
 });

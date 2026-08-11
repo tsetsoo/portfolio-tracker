@@ -165,7 +165,9 @@ describe("netFillsFifo withdrawal cost", () => {
   it("marks partial and lists missing crypto quote currencies", () => {
     const fx = createFifoFxLookup({
       baseCurrency: "EUR",
-      getDailyRate: () => 0.9,
+      // Fiat daily rates only — CRO has no crypto→EUR cache yet.
+      getDailyRate: (from, to) =>
+        from === "USD" && to === "EUR" ? 0.9 : null,
     });
     const fills: LotFill[] = [
       {
@@ -219,6 +221,51 @@ describe("netFillsFifo withdrawal cost", () => {
     expect(result.consumed[0]!.partial).toBe(true);
     expect(result.consumed[0]!.costBasis).toBeCloseTo(5000);
     expect(result.consumed[0]!.missingCurrencies).toEqual(["CRO"]);
+  });
+
+  it("converts CRO lot costs via dated crypto→EUR daily rate", () => {
+    const fx = createFifoFxLookup({
+      baseCurrency: "EUR",
+      getDailyRate: (from, to, date) =>
+        from === "CRO" && to === "EUR" && date === "2022-08-20" ? 0.12 : null,
+    });
+    const fills: LotFill[] = [
+      {
+        line: 2,
+        order: 0,
+        sortKey: "2022-08-20T10:00:00",
+        side: "BUY",
+        row: {
+          symbol: "ETH",
+          quantity: 1,
+          costPerUnit: 1000,
+          costCurrency: "CRO",
+          purchasedAt: "2022-08-20",
+          fees: 0,
+          externalTradeId: "buy-cro",
+        },
+      },
+      {
+        line: 3,
+        order: 1,
+        sortKey: "2022-08-21T10:00:00",
+        side: "SELL",
+        disposition: "withdrawal",
+        row: {
+          symbol: "ETH",
+          quantity: 1,
+          costPerUnit: 0,
+          costCurrency: "EUR",
+          purchasedAt: "2022-08-21",
+          fees: 0,
+          externalTradeId: "wd:eth",
+        },
+      },
+    ];
+    const result = netFillsFifo(fills, fx);
+    expect(result.consumed[0]!.partial).toBeFalsy();
+    expect(result.consumed[0]!.costBasis).toBeCloseTo(120);
+    expect(result.consumed[0]!.costCurrency).toBe("EUR");
   });
 
   it("emits a zero-basis partial settlement when every FX rate is missing", () => {
