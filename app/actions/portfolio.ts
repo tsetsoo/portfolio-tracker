@@ -77,6 +77,7 @@ export async function forceRefreshPortfolio(): Promise<void> {
     forceRefresh: true,
     holdingTypes: ["equity", "manual"],
     includeWalletCrypto: true,
+    includeHandpickedCrypto: true,
   });
   revalidatePath("/");
   revalidatePath("/holdings");

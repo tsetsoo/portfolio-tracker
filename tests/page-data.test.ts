@@ -63,18 +63,22 @@ describe("page data loaders", () => {
           fetchedAt: "2026-07-25T09:00:00.000Z",
         };
       }
-      return {
-        price: 100,
-        currency: "USD",
-        stale: false,
-        fetchedAt: "2026-07-25T09:00:00.000Z",
-      };
+      if (symbol === "ACME") {
+        return {
+          price: 100,
+          currency: "USD",
+          stale: false,
+          fetchedAt: "2026-07-25T09:00:00.000Z",
+        };
+      }
+      throw new Error(`no quote for ${symbol}`);
     });
 
     const data = await loadDashboardPageData(db, {
       getQuote,
       getFxRate: vi.fn(async () => ({ rate: 0.9, stale: false })),
       today: "2026-07-25",
+      includeHandpickedCrypto: false,
     });
 
     // Equity 900 + wallet ETH 6000 — exchange crypto holding excluded.

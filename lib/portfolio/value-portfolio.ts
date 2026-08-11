@@ -11,6 +11,10 @@ import type {
   ValuedHolding,
 } from "@/lib/domain/types";
 import { valueHolding } from "@/lib/domain/valuation";
+import {
+  HANDPICKED_OVERVIEW_CRYPTO,
+  valueHandpickedCrypto,
+} from "@/lib/portfolio/handpicked-crypto";
 import { createQuoteService } from "@/lib/quotes/service";
 import type { Quote, QuoteService } from "@/lib/quotes/types";
 import { getSettings } from "@/lib/settings";
@@ -50,6 +54,8 @@ export interface ValuePortfolioOptions {
   holdingTypes?: HoldingType[];
   /** Include aggregated wallet balances as crypto positions. */
   includeWalletCrypto?: boolean;
+  /** Include curated exchange/external crypto on the overview. */
+  includeHandpickedCrypto?: boolean;
   getQuote?: QuoteService["getQuote"];
   getCryptoQuotes?: QuoteService["getCryptoQuotes"];
   getFxRate?: QuoteService["getFxRate"];
@@ -241,6 +247,9 @@ export async function valuePortfolio(
   const walletAssets = opts.includeWalletCrypto
     ? listWalletAssetQuantities(db)
     : [];
+  const handpicked = opts.includeHandpickedCrypto
+    ? HANDPICKED_OVERVIEW_CRYPTO
+    : [];
 
   const equityHoldings = holdings.filter(
     (h): h is Holding & { type: "equity"; symbol: string } =>
@@ -250,8 +259,13 @@ export async function valuePortfolio(
     .filter((h) => h.type === "crypto" && h.symbol)
     .map((h) => h.symbol!);
   const walletSymbols = walletAssets.map((a) => a.asset);
+  const handpickedSymbols = handpicked.map((p) => p.symbol);
   const allCryptoSymbols = [
-    ...new Set([...cryptoHoldingSymbols, ...walletSymbols]),
+    ...new Set([
+      ...cryptoHoldingSymbols,
+      ...walletSymbols,
+      ...handpickedSymbols,
+    ]),
   ];
 
   const cryptoQuotes = await getCryptoQuotes(allCryptoSymbols, fetchOpts);
@@ -304,6 +318,10 @@ export async function valuePortfolio(
     const quote = cryptoQuotes.get(asset.asset);
     if (quote) currencies.add(quote.currency);
   }
+  for (const position of handpicked) {
+    const quote = cryptoQuotes.get(position.symbol.toUpperCase());
+    if (quote) currencies.add(quote.currency);
+  }
   currencies.delete(baseCurrency);
 
   const fxRates: Record<string, number> = {};
@@ -351,7 +369,19 @@ export async function valuePortfolio(
     });
   });
 
-  const combined = [...valuedHoldings, ...walletValued];
+  const handpickedResult = valueHandpickedCrypto(
+    handpicked,
+    cryptoQuotes,
+    baseCurrency,
+    fxRates,
+  );
+  pricesOutdated ||= handpickedResult.pricesOutdated;
+
+  const combined = [
+    ...valuedHoldings,
+    ...walletValued,
+    ...handpickedResult.holdings,
+  ];
 
   return {
     baseCurrency,

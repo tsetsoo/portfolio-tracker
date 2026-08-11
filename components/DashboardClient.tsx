@@ -20,7 +20,7 @@ const SECTIONS: Array<{
   eyebrow: string;
 }> = [
   { type: "equity", title: "Stocks & ETFs", eyebrow: "Equities" },
-  { type: "crypto", title: "Crypto", eyebrow: "Wallets" },
+  { type: "crypto", title: "Crypto", eyebrow: "Wallets & exchanges" },
   { type: "manual", title: "Manual", eyebrow: "Entered by you" },
 ];
 

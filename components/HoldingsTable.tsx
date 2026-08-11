@@ -30,6 +30,7 @@ export function HoldingsTable({ holdings, currency }: HoldingsTableProps) {
             <th>Holding</th>
             <th className="numeric">Units</th>
             <th className="numeric">Cost / unit</th>
+            <th className="numeric">Price</th>
             <th className="numeric">Cost basis</th>
             <th className="numeric">Value</th>
             <th className="numeric">P&amp;L</th>
@@ -40,6 +41,8 @@ export function HoldingsTable({ holdings, currency }: HoldingsTableProps) {
             const pl = item.unrealizedPlBase;
             const direction =
               pl == null ? "neutral" : pl >= 0 ? "gain" : "loss";
+            const spotPrice =
+              item.quantity > 0 ? item.currentValueBase / item.quantity : null;
 
             return (
               <tr key={item.holding.id}>
@@ -52,6 +55,11 @@ export function HoldingsTable({ holdings, currency }: HoldingsTableProps) {
                   {item.avgCostPerUnit == null
                     ? "—"
                     : formatMoney(item.avgCostPerUnit, currency)}
+                </td>
+                <td className="numeric">
+                  {spotPrice == null || item.currentValueBase === 0
+                    ? "—"
+                    : formatMoney(spotPrice, currency)}
                 </td>
                 <td className="numeric">
                   {item.costBasisBase == null

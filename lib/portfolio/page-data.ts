@@ -41,12 +41,13 @@ export async function loadDashboardPageData(
   db: Database.Database,
   opts: DashboardPageDataOptions = {},
 ): Promise<DashboardPageData> {
-  // Overview: equities + manual + wallet crypto. Exchange crypto holdings
-  // stay on /holdings until cleaned up / handpicked later.
+  // Overview: equities + manual + wallet crypto + curated handpicked crypto.
+  // Other exchange crypto leftovers stay on /holdings until cleaned up.
   const valuation = await valuePortfolio(db, {
     ...opts,
     holdingTypes: opts.holdingTypes ?? ["equity", "manual"],
     includeWalletCrypto: opts.includeWalletCrypto ?? true,
+    includeHandpickedCrypto: opts.includeHandpickedCrypto ?? true,
   });
   const today = opts.today ?? localDateString(opts.now?.() ?? new Date());
   // Only snapshot when prices look fresh — avoids writing €0 cache-miss days.
