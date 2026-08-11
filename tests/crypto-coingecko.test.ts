@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fetchCoinGeckoMarketChartRange,
   fetchCoinGeckoQuote,
+  fetchCoinGeckoQuotes,
   pickPriceOnOrBefore,
 } from "@/lib/quotes/crypto-coingecko";
 
@@ -39,6 +40,33 @@ describe("fetchCoinGeckoQuote residual crypto map", () => {
     await expect(
       fetchCoinGeckoQuote("NOTACOIN", "EUR", vi.fn<typeof fetch>()),
     ).rejects.toThrow("Unsupported crypto symbol: NOTACOIN");
+  });
+});
+
+describe("fetchCoinGeckoQuotes", () => {
+  it("batches multiple symbols into one request", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          bitcoin: { eur: 100_000, usd: 110_000 },
+          ethereum: { eur: 3_000, usd: 3_300 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const quotes = await fetchCoinGeckoQuotes(
+      ["BTC", "ETH"],
+      "EUR",
+      fetchImpl,
+    );
+
+    expect(quotes.get("BTC")).toEqual({ price: 100_000, currency: "EUR" });
+    expect(quotes.get("ETH")).toEqual({ price: 3_000, currency: "EUR" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain(
+      "ids=bitcoin%2Cethereum",
+    );
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import {
   forceRefreshPortfolio,
@@ -12,20 +12,101 @@ import { HoldingsList } from "@/components/HoldingsList";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { NetWorthHeader } from "@/components/NetWorthHeader";
 import { OutdatedBanner } from "@/components/OutdatedBanner";
+import type { HoldingType, ValuedHolding } from "@/lib/domain/types";
+
+const SECTIONS: Array<{
+  type: HoldingType;
+  title: string;
+  eyebrow: string;
+}> = [
+  { type: "equity", title: "Stocks & ETFs", eyebrow: "Equities" },
+  { type: "crypto", title: "Crypto", eyebrow: "Wallets" },
+  { type: "manual", title: "Manual", eyebrow: "Entered by you" },
+];
+
+function sortHoldings(holdings: ValuedHolding[]): ValuedHolding[] {
+  return [...holdings].sort((a, b) => {
+    const byValue = b.currentValueBase - a.currentValueBase;
+    if (byValue !== 0) return byValue;
+    return (a.holding.symbol ?? a.holding.name).localeCompare(
+      b.holding.symbol ?? b.holding.name,
+    );
+  });
+}
+
+function HoldingsSection({
+  title,
+  eyebrow,
+  holdings,
+  currency,
+}: {
+  title: string;
+  eyebrow: string;
+  holdings: ValuedHolding[];
+  currency: string;
+}) {
+  if (holdings.length === 0) return null;
+
+  return (
+    <section className="dashboard-panel holdings-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+        <span>
+          {holdings.length} {holdings.length === 1 ? "position" : "positions"}
+        </span>
+      </div>
+      <div className="mobile-holdings">
+        <HoldingsList holdings={holdings} currency={currency} />
+      </div>
+      <div className="desktop-holdings">
+        <HoldingsTable holdings={holdings} currency={currency} />
+      </div>
+    </section>
+  );
+}
 
 export function DashboardClient() {
   const [data, setData] = useState<DashboardPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const bgRefreshStarted = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    bgRefreshStarted.current = false;
+
     startTransition(() => {
-      void loadDashboardData()
+      void loadDashboardData({ cacheOnly: true })
         .then((next) => {
-          if (!cancelled) {
-            setData(next);
-            setError(null);
+          if (cancelled) return;
+          setData(next);
+          setError(null);
+
+          if (next.valuation.pricesOutdated && !bgRefreshStarted.current) {
+            bgRefreshStarted.current = true;
+            setIsRefreshing(true);
+            void forceRefreshPortfolio()
+              .then(() => loadDashboardData())
+              .then((fresh) => {
+                if (!cancelled) {
+                  setData(fresh);
+                  setError(null);
+                }
+              })
+              .catch((err: unknown) => {
+                if (!cancelled) {
+                  setError(
+                    err instanceof Error ? err.message : "Refresh failed",
+                  );
+                }
+              })
+              .finally(() => {
+                if (!cancelled) setIsRefreshing(false);
+              });
           }
         })
         .catch((err: unknown) => {
@@ -34,12 +115,14 @@ export function DashboardClient() {
           }
         });
     });
+
     return () => {
       cancelled = true;
     };
   }, []);
 
   function refreshPrices() {
+    setIsRefreshing(true);
     startTransition(() => {
       void forceRefreshPortfolio()
         .then(() => loadDashboardData())
@@ -49,22 +132,29 @@ export function DashboardClient() {
         })
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Refresh failed");
-        });
+        })
+        .finally(() => setIsRefreshing(false));
     });
   }
 
+  const busy = isPending || isRefreshing || !data;
+
   return (
-    <main className="dashboard" aria-busy={isPending || !data || undefined}>
+    <main className="dashboard" aria-busy={busy || undefined}>
       <div className="dashboard-toolbar">
         <p>Overview</p>
         <button
           className="refresh-button"
           type="button"
           onClick={refreshPrices}
-          disabled={isPending}
+          disabled={isPending || isRefreshing}
         >
           <span aria-hidden="true">↻</span>
-          {isPending && data ? "Refreshing…" : "Refresh prices"}
+          {isRefreshing && data
+            ? "Refreshing…"
+            : isPending && data
+              ? "Loading…"
+              : "Refresh prices"}
         </button>
       </div>
 
@@ -76,7 +166,9 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
-          {data.valuation.pricesOutdated && <OutdatedBanner />}
+          {(data.valuation.pricesOutdated || isRefreshing) && (
+            <OutdatedBanner />
+          )}
 
           <NetWorthHeader
             total={data.valuation.totalBase}
@@ -100,27 +192,19 @@ export function DashboardClient() {
             />
           </section>
 
-          <section className="dashboard-panel holdings-panel">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Allocation detail</p>
-                <h2>Holdings</h2>
-              </div>
-              <span>{data.valuation.holdings.length} positions</span>
-            </div>
-            <div className="mobile-holdings">
-              <HoldingsList
-                holdings={data.valuation.holdings}
-                currency={data.valuation.baseCurrency}
-              />
-            </div>
-            <div className="desktop-holdings">
-              <HoldingsTable
-                holdings={data.valuation.holdings}
-                currency={data.valuation.baseCurrency}
-              />
-            </div>
-          </section>
+          {SECTIONS.map((section) => (
+            <HoldingsSection
+              key={section.type}
+              title={section.title}
+              eyebrow={section.eyebrow}
+              holdings={sortHoldings(
+                data.valuation.holdings.filter(
+                  (item) => item.holding.type === section.type,
+                ),
+              )}
+              currency={data.valuation.baseCurrency}
+            />
+          ))}
         </>
       )}
     </main>

@@ -26,6 +26,10 @@ export type DashboardPageDataOptions = ValuePortfolioOptions & {
   today?: string;
 };
 
+export type LoadDashboardDataInput = {
+  cacheOnly?: boolean;
+};
+
 function localDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -37,9 +41,16 @@ export async function loadDashboardPageData(
   db: Database.Database,
   opts: DashboardPageDataOptions = {},
 ): Promise<DashboardPageData> {
-  const valuation = await valuePortfolio(db, opts);
+  // Overview: equities + manual + wallet crypto. Exchange crypto holdings
+  // stay on /holdings until cleaned up / handpicked later.
+  const valuation = await valuePortfolio(db, {
+    ...opts,
+    holdingTypes: opts.holdingTypes ?? ["equity", "manual"],
+    includeWalletCrypto: opts.includeWalletCrypto ?? true,
+  });
   const today = opts.today ?? localDateString(opts.now?.() ?? new Date());
-  if (!valuation.pricesOutdated) {
+  // Only snapshot when prices look fresh — avoids writing €0 cache-miss days.
+  if (!valuation.pricesOutdated && !opts.cacheOnly) {
     ensureTodaySnapshot(db, valuation, today);
   }
   const snapshots = listSnapshots(db);

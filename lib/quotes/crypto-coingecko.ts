@@ -28,6 +28,7 @@ const COINGECKO_IDS: Record<string, string> = {
   ETHW: "ethereum-pow-iou",
   USDC: "usd-coin",
   FTM: "fantom",
+  BCH: "bitcoin-cash",
 };
 
 type CoinGeckoResponse = Record<string, Record<string, number>>;
@@ -109,27 +110,10 @@ export function pickPriceOnOrBefore(
   return best;
 }
 
-export async function fetchCoinGeckoQuote(
-  symbol: string,
-  baseCurrency: string,
-  fetchImpl: typeof fetch,
-): Promise<{ price: number; currency: string }> {
-  const id = coingeckoIdForSymbol(symbol);
-  if (!id) {
-    throw new Error(`Unsupported crypto symbol: ${symbol}`);
-  }
-
-  const preferredCurrency = baseCurrency.toUpperCase() === "EUR" ? "eur" : "usd";
-  const url =
-    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}` +
-    "&vs_currencies=eur,usd";
-  const response = await fetchImpl(url);
-  if (!response.ok) {
-    throw new Error(`CoinGecko request failed (${response.status})`);
-  }
-
-  const payload = (await response.json()) as CoinGeckoResponse;
-  const prices = payload[id];
+function pickVsPrice(
+  prices: Record<string, number> | undefined,
+  preferredCurrency: "eur" | "usd",
+): { price: number; currency: string } {
   const currency =
     typeof prices?.[preferredCurrency] === "number"
       ? preferredCurrency
@@ -138,6 +122,60 @@ export async function fetchCoinGeckoQuote(
   if (typeof price !== "number" || !Number.isFinite(price)) {
     throw new Error("CoinGecko returned an invalid quote");
   }
-
   return { price, currency: currency.toUpperCase() };
+}
+
+/** Batch quote fetch — one HTTP call for many symbols. */
+export async function fetchCoinGeckoQuotes(
+  symbols: string[],
+  baseCurrency: string,
+  fetchImpl: typeof fetch,
+): Promise<Map<string, { price: number; currency: string }>> {
+  const preferredCurrency = baseCurrency.toUpperCase() === "EUR" ? "eur" : "usd";
+  const idBySymbol = new Map<string, string>();
+  const unsupported: string[] = [];
+  for (const raw of symbols) {
+    const symbol = raw.trim().toUpperCase();
+    if (!symbol || idBySymbol.has(symbol)) continue;
+    const id = coingeckoIdForSymbol(symbol);
+    if (!id) {
+      unsupported.push(symbol);
+      continue;
+    }
+    idBySymbol.set(symbol, id);
+  }
+  if (idBySymbol.size === 0 && unsupported.length > 0) {
+    throw new Error(`Unsupported crypto symbol: ${unsupported[0]}`);
+  }
+
+  const result = new Map<string, { price: number; currency: string }>();
+  if (idBySymbol.size === 0) return result;
+
+  const ids = [...new Set(idBySymbol.values())];
+  const url =
+    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}` +
+    "&vs_currencies=eur,usd";
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(`CoinGecko request failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as CoinGeckoResponse;
+  for (const [symbol, id] of idBySymbol) {
+    result.set(symbol, pickVsPrice(payload[id], preferredCurrency));
+  }
+  return result;
+}
+
+export async function fetchCoinGeckoQuote(
+  symbol: string,
+  baseCurrency: string,
+  fetchImpl: typeof fetch,
+): Promise<{ price: number; currency: string }> {
+  const quotes = await fetchCoinGeckoQuotes([symbol], baseCurrency, fetchImpl);
+  const quote = quotes.get(symbol.trim().toUpperCase());
+  if (!quote) {
+    throw new Error(`Unsupported crypto symbol: ${symbol}`);
+  }
+  return quote;
 }

@@ -25,8 +25,12 @@ import { normalizeCurrencyCode } from "@/lib/settings";
 
 export type { DashboardPageData, HoldingsPageData };
 
-export async function loadDashboardData(): Promise<DashboardPageData> {
-  return loadDashboardPageData(getDb());
+export async function loadDashboardData(input?: {
+  cacheOnly?: boolean;
+}): Promise<DashboardPageData> {
+  return loadDashboardPageData(getDb(), {
+    cacheOnly: input?.cacheOnly === true,
+  });
 }
 
 export async function loadHoldingsData(): Promise<HoldingsPageData> {
@@ -69,7 +73,11 @@ export async function deleteHolding(holdingId: string): Promise<void> {
 }
 
 export async function forceRefreshPortfolio(): Promise<void> {
-  await valuePortfolio(getDb(), { forceRefresh: true });
+  await valuePortfolio(getDb(), {
+    forceRefresh: true,
+    holdingTypes: ["equity", "manual"],
+    includeWalletCrypto: true,
+  });
   revalidatePath("/");
   revalidatePath("/holdings");
 }

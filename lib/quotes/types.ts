@@ -12,15 +12,32 @@ export interface FxRate {
   stale: boolean;
 }
 
+export type QuoteFetchOpts = {
+  force?: boolean;
+  /** Prefer cache even when past TTL; never hit the network. */
+  cacheOnly?: boolean;
+  preferredCurrency?: string;
+};
+
+export type FxFetchOpts = {
+  force?: boolean;
+  cacheOnly?: boolean;
+};
+
 export interface QuoteService {
   getQuote(
     symbol: string,
     assetClass: AssetClass,
-    opts?: { force?: boolean; preferredCurrency?: string },
+    opts?: QuoteFetchOpts,
   ): Promise<Quote>;
+  /** Batched crypto quotes (one CoinGecko request for uncached symbols). */
+  getCryptoQuotes(
+    symbols: string[],
+    opts?: QuoteFetchOpts,
+  ): Promise<Map<string, Quote>>;
   getFxRate(
     from: string,
     to: string,
-    opts?: { force?: boolean },
+    opts?: FxFetchOpts,
   ): Promise<FxRate>;
 }

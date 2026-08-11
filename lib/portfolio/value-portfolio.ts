@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import { aggregateLots, MixedCostCurrencyError } from "@/lib/domain/lots";
 import type {
   Holding,
+  HoldingType,
   Lot,
   PortfolioValuation,
   ValuedHolding,
@@ -13,6 +14,10 @@ import { valueHolding } from "@/lib/domain/valuation";
 import { createQuoteService } from "@/lib/quotes/service";
 import type { Quote, QuoteService } from "@/lib/quotes/types";
 import { getSettings } from "@/lib/settings";
+import {
+  listWalletAssetQuantities,
+  walletAssetCost,
+} from "@/lib/wallets/portfolio-assets";
 
 interface HoldingRow {
   id: string;
@@ -39,26 +44,38 @@ interface LotRow {
 
 export interface ValuePortfolioOptions {
   forceRefresh?: boolean;
+  /** Serve cached quotes/FX only — never call market APIs. */
+  cacheOnly?: boolean;
+  /** Holding types to value from the holdings table. Default: all. */
+  holdingTypes?: HoldingType[];
+  /** Include aggregated wallet balances as crypto positions. */
+  includeWalletCrypto?: boolean;
   getQuote?: QuoteService["getQuote"];
+  getCryptoQuotes?: QuoteService["getCryptoQuotes"];
   getFxRate?: QuoteService["getFxRate"];
   now?: () => Date;
 }
 
-function readHoldings(db: Database.Database): Holding[] {
+function readHoldings(
+  db: Database.Database,
+  types?: HoldingType[],
+): Holding[] {
   const rows = db
     .prepare("SELECT * FROM holdings ORDER BY name, id")
     .all() as HoldingRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    type: row.type,
-    symbol: row.symbol,
-    name: row.name,
-    quoteCurrency: row.quote_currency,
-    manualValue: row.manual_value,
-    notes: row.notes,
-    updatedAt: row.updated_at,
-  }));
+  return rows
+    .filter((row) => types == null || types.includes(row.type))
+    .map((row) => ({
+      id: row.id,
+      type: row.type,
+      symbol: row.symbol,
+      name: row.name,
+      quoteCurrency: row.quote_currency,
+      manualValue: row.manual_value,
+      notes: row.notes,
+      updatedAt: row.updated_at,
+    }));
 }
 
 function readLots(db: Database.Database): Lot[] {
@@ -107,44 +124,172 @@ function unpricedHolding(holding: Holding, lots: Lot[]): ValuedHolding {
   };
 }
 
+function walletSyntheticHolding(asset: string): Holding {
+  return {
+    id: `wallet:${asset}`,
+    type: "crypto",
+    symbol: asset,
+    name: `${asset} (wallets)`,
+    quoteCurrency: null,
+    manualValue: null,
+    notes: null,
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+function valueWalletPosition(input: {
+  asset: string;
+  quantity: number;
+  price: Quote | null;
+  baseCurrency: string;
+  fxRates: Record<string, number>;
+  cost: ReturnType<typeof walletAssetCost>;
+}): ValuedHolding {
+  const holding = walletSyntheticHolding(input.asset);
+  const costBasisBase = input.cost.complete ? input.cost.costBasisEur : null;
+  const avgCostPerUnit = input.cost.complete
+    ? input.cost.avgCostPerUnitEur
+    : input.cost.avgCostPerUnitEur;
+
+  let currentValueBase = 0;
+  if (input.price) {
+    const native = input.quantity * input.price.price;
+    if (input.price.currency === input.baseCurrency) {
+      currentValueBase = native;
+    } else {
+      const rate = input.fxRates[`${input.price.currency}>${input.baseCurrency}`];
+      if (rate == null) {
+        return {
+          holding,
+          quantity: input.quantity,
+          avgCostPerUnit,
+          currentValueBase: 0,
+          costBasisBase,
+          unrealizedPlBase: null,
+          unrealizedPlPct: null,
+        };
+      }
+      currentValueBase = native * rate;
+    }
+  }
+
+  if (input.price == null || costBasisBase == null) {
+    return {
+      holding,
+      quantity: input.quantity,
+      avgCostPerUnit,
+      currentValueBase,
+      costBasisBase,
+      unrealizedPlBase: null,
+      unrealizedPlPct: null,
+    };
+  }
+
+  const unrealizedPlBase = currentValueBase - costBasisBase;
+  const unrealizedPlPct =
+    costBasisBase !== 0 ? (unrealizedPlBase / costBasisBase) * 100 : null;
+
+  return {
+    holding,
+    quantity: input.quantity,
+    avgCostPerUnit,
+    currentValueBase,
+    costBasisBase,
+    unrealizedPlBase,
+    unrealizedPlPct,
+  };
+}
+
 export async function valuePortfolio(
   db: Database.Database,
   opts: ValuePortfolioOptions = {},
 ): Promise<PortfolioValuation> {
   const baseCurrency = getSettings(db).baseCurrency;
-  const holdings = readHoldings(db);
+  const holdings = readHoldings(db, opts.holdingTypes);
   const allLots = readLots(db);
   const quoteService = createQuoteService(db, globalThis.fetch);
   const getQuote = opts.getQuote ?? quoteService.getQuote;
+  const getCryptoQuotes: QuoteService["getCryptoQuotes"] =
+    opts.getCryptoQuotes ??
+    (async (symbols, quoteOpts) => {
+      // Tests often inject getQuote only — fan out so crypto still works.
+      if (opts.getQuote) {
+        const map = new Map<string, Quote>();
+        await Promise.all(
+          symbols.map(async (symbol) => {
+            try {
+              map.set(
+                symbol.toUpperCase(),
+                await opts.getQuote!(symbol, "crypto", quoteOpts),
+              );
+            } catch {
+              // leave unpriced
+            }
+          }),
+        );
+        return map;
+      }
+      return quoteService.getCryptoQuotes(symbols, quoteOpts);
+    });
   const getFxRate = opts.getFxRate ?? quoteService.getFxRate;
+  const fetchOpts = {
+    force: opts.forceRefresh,
+    cacheOnly: opts.cacheOnly,
+  };
   let pricesOutdated = false;
+
+  const walletAssets = opts.includeWalletCrypto
+    ? listWalletAssetQuantities(db)
+    : [];
+
+  const equityHoldings = holdings.filter((h) => h.type === "equity");
+  const cryptoHoldingSymbols = holdings
+    .filter((h) => h.type === "crypto" && h.symbol)
+    .map((h) => h.symbol!);
+  const walletSymbols = walletAssets.map((a) => a.asset);
+  const allCryptoSymbols = [
+    ...new Set([...cryptoHoldingSymbols, ...walletSymbols]),
+  ];
+
+  const cryptoQuotes = await getCryptoQuotes(allCryptoSymbols, fetchOpts);
+  for (const symbol of allCryptoSymbols) {
+    const quote = cryptoQuotes.get(symbol);
+    if (!quote) {
+      pricesOutdated = true;
+    } else {
+      pricesOutdated ||= quote.stale;
+    }
+  }
 
   const quotes = new Map<string, Quote>();
   await Promise.all(
-    holdings.map(async (holding) => {
-      if (holding.type === "manual" || holding.symbol === null) return;
+    equityHoldings.map(async (holding) => {
+      if (holding.symbol === null) return;
       try {
         const quote = await getQuote(holding.symbol, holding.type, {
-          force: opts.forceRefresh,
-          // CoinGecko always quotes in base currency; requiring the lot's
-          // quote (USDT/CRO/…) rejects the EUR cache and leaves crypto at €0.
-          preferredCurrency:
-            holding.type === "equity"
-              ? (holding.quoteCurrency ?? undefined)
-              : undefined,
+          ...fetchOpts,
+          preferredCurrency: holding.quoteCurrency ?? undefined,
         });
         quotes.set(holding.id, quote);
         pricesOutdated ||= quote.stale;
       } catch {
-        // No quote available (network/API failure with no cached price).
-        // Treat the holding as unpriced rather than failing the whole page.
         pricesOutdated = true;
       }
     }),
   );
 
+  for (const holding of holdings) {
+    if (holding.type !== "crypto" || holding.symbol == null) continue;
+    const quote = cryptoQuotes.get(holding.symbol.toUpperCase());
+    if (quote) quotes.set(holding.id, quote);
+  }
+
   const currencies = new Set<string>();
-  for (const lot of allLots) currencies.add(lot.costCurrency);
+  for (const lot of allLots) {
+    if (holdings.some((h) => h.id === lot.holdingId)) {
+      currencies.add(lot.costCurrency);
+    }
+  }
   for (const holding of holdings) {
     if (holding.type === "manual") {
       currencies.add(holding.quoteCurrency ?? baseCurrency);
@@ -153,20 +298,20 @@ export async function valuePortfolio(
       if (quote) currencies.add(quote.currency);
     }
   }
+  for (const asset of walletAssets) {
+    const quote = cryptoQuotes.get(asset.asset);
+    if (quote) currencies.add(quote.currency);
+  }
   currencies.delete(baseCurrency);
 
   const fxRates: Record<string, number> = {};
   await Promise.all(
     [...currencies].map(async (currency) => {
       try {
-        const fx = await getFxRate(currency, baseCurrency, {
-          force: opts.forceRefresh,
-        });
+        const fx = await getFxRate(currency, baseCurrency, fetchOpts);
         fxRates[`${currency}>${baseCurrency}`] = fx.rate;
         pricesOutdated ||= fx.stale;
       } catch {
-        // No FX rate available; holdings needing this currency will fall
-        // back to unpriced below instead of throwing.
         pricesOutdated = true;
       }
     }),
@@ -183,28 +328,44 @@ export async function valuePortfolio(
         fxRates,
       });
     } catch {
-      // Most likely a missing FX rate for this holding's currency. Fall
-      // back to an unpriced holding instead of failing the whole page.
       pricesOutdated = true;
       return unpricedHolding(holding, lots);
     }
   });
 
+  const walletValued: ValuedHolding[] = walletAssets.map((asset) => {
+    const quote = cryptoQuotes.get(asset.asset) ?? null;
+    if (!quote) pricesOutdated = true;
+    else pricesOutdated ||= quote.stale;
+
+    const cost = walletAssetCost(db, asset.asset, asset.quantity);
+    return valueWalletPosition({
+      asset: asset.asset,
+      quantity: asset.quantity,
+      price: quote,
+      baseCurrency,
+      fxRates,
+      cost,
+    });
+  });
+
+  const combined = [...valuedHoldings, ...walletValued];
+
   return {
     baseCurrency,
-    totalBase: valuedHoldings.reduce(
+    totalBase: combined.reduce(
       (total, holding) => total + holding.currentValueBase,
       0,
     ),
-    totalCostBase: valuedHoldings.reduce(
+    totalCostBase: combined.reduce(
       (total, holding) => total + (holding.costBasisBase ?? 0),
       0,
     ),
-    unrealizedPlBase: valuedHoldings.reduce(
+    unrealizedPlBase: combined.reduce(
       (total, holding) => total + (holding.unrealizedPlBase ?? 0),
       0,
     ),
-    holdings: valuedHoldings,
+    holdings: combined,
     pricesOutdated,
     asOf: (opts.now ?? (() => new Date()))().toISOString(),
   };

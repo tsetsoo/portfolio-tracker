@@ -54,16 +54,16 @@ export default function WalletsPage() {
         <p className="eyebrow">On-chain watch</p>
         <h1>Wallets</h1>
         <p>
-          Track ETH/BTC/BCH addresses separately from portfolio value. Scan
-          exchange withdrawal hashes to resolve destinations, attach FIFO cost,
-          and surface significant ERC-20 balances.
+          Track ETH/BTC/BCH addresses and ERC-20 balances. Wallet assets roll
+          into overview net worth. Scan exchange withdrawal hashes to resolve
+          destinations and attach FIFO cost.
         </p>
       </header>
 
       <section className="dashboard-panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Not in net worth</p>
+            <p className="eyebrow">On-chain balances</p>
             <h2>Tracked addresses</h2>
           </div>
           <span>
