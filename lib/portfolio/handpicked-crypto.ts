@@ -32,13 +32,12 @@ export const HANDPICKED_OVERVIEW_CRYPTO: HandpickedCryptoPosition[] = [
     venueNote: "Currently on Binance",
   },
   {
-    symbol: "ADA",
+    symbol: "DOT",
     quantity: 29.9,
-    // Cardano is not a tracked wallet chain (app only syncs ETH/BTC/BCH).
-    // No remaining costed lots match this balance — CDC's 400 ADA were swapped
-    // to ETH; Binance ADA was sold. Cost left unknown until you confirm basis.
-    costBasisEur: null,
-    venueNote: "Cardano wallet (not synced)",
+    // Crypto.com: 20 @ €81.12 (2020-09-05) + 10 @ 77.38 BGN→€39.56 (2020-09-20),
+    // then withdrew 30 DOT to a Polkadot wallet (2021-03-16). Scaled to 29.9.
+    costBasisEur: 120.28,
+    venueNote: "Polkadot wallet (not synced)",
   },
 ];
 

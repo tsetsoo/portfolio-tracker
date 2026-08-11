@@ -28,9 +28,9 @@ describe("handpicked overview crypto", () => {
         },
       ],
       [
-        "ADA",
+        "DOT",
         {
-          price: 0.2,
+          price: 4,
           currency: "EUR",
           stale: false,
           fetchedAt: "2026-08-11T12:00:00.000Z",
@@ -65,13 +65,12 @@ describe("handpicked overview crypto", () => {
     });
     expect(avax?.holding.name).toContain("Binance");
 
-    const ada = holdings.find((h) => h.holding.symbol === "ADA");
-    expect(ada).toMatchObject({
+    const dot = holdings.find((h) => h.holding.symbol === "DOT");
+    expect(dot).toMatchObject({
       quantity: 29.9,
-      costBasisBase: null,
-      currentValueBase: 5.98,
-      unrealizedPlBase: null,
+      costBasisBase: 120.28,
+      currentValueBase: 119.6,
     });
-    expect(ada?.holding.name).toMatch(/Cardano wallet/i);
+    expect(dot?.holding.name).toMatch(/Polkadot wallet/i);
   });
 });
