@@ -7,7 +7,7 @@ import {
   listSnapshots,
 } from "@/lib/portfolio/snapshots";
 import {
-  valuePortfolio,
+  valueOverviewPortfolio,
   type ValuePortfolioOptions,
 } from "@/lib/portfolio/value-portfolio";
 
@@ -22,9 +22,15 @@ export type HoldingsPageData = {
   lotsByHolding: Record<string, Lot[]>;
 };
 
-export type DashboardPageDataOptions = ValuePortfolioOptions & {
+export type OverviewPageDataOptions = Omit<
+  ValuePortfolioOptions,
+  "holdingTypes" | "includeWalletCrypto" | "includeHandpickedCrypto"
+> & {
   today?: string;
 };
+
+/** @deprecated Use OverviewPageDataOptions — same crypto sources as Home. */
+export type DashboardPageDataOptions = OverviewPageDataOptions;
 
 export type LoadDashboardDataInput = {
   cacheOnly?: boolean;
@@ -39,16 +45,9 @@ function localDateString(date: Date): string {
 
 export async function loadDashboardPageData(
   db: Database.Database,
-  opts: DashboardPageDataOptions = {},
+  opts: OverviewPageDataOptions = {},
 ): Promise<DashboardPageData> {
-  // Overview: equities + manual + wallet crypto + curated handpicked crypto.
-  // Other exchange crypto leftovers stay on /holdings until cleaned up.
-  const valuation = await valuePortfolio(db, {
-    ...opts,
-    holdingTypes: opts.holdingTypes ?? ["equity", "manual"],
-    includeWalletCrypto: opts.includeWalletCrypto ?? true,
-    includeHandpickedCrypto: opts.includeHandpickedCrypto ?? true,
-  });
+  const valuation = await valueOverviewPortfolio(db, opts);
   const today = opts.today ?? localDateString(opts.now?.() ?? new Date());
   // Only snapshot when prices look fresh — avoids writing €0 cache-miss days.
   if (!valuation.pricesOutdated && !opts.cacheOnly) {
@@ -65,10 +64,13 @@ export async function loadDashboardPageData(
 
 export async function loadHoldingsPageData(
   db: Database.Database,
-  opts: ValuePortfolioOptions = {},
+  opts: OverviewPageDataOptions = {},
 ): Promise<HoldingsPageData> {
-  const valuation = await valuePortfolio(db, opts);
-  const holdingsWithLots = listHoldingsWithLots(db);
+  const valuation = await valueOverviewPortfolio(db, opts);
+  const valuedIds = new Set(valuation.holdings.map((h) => h.holding.id));
+  const holdingsWithLots = listHoldingsWithLots(db).filter((h) =>
+    valuedIds.has(h.id),
+  );
   const lotsByHolding = Object.fromEntries(
     holdingsWithLots.map((holding) => [holding.id, holding.lots]),
   );

@@ -16,7 +16,7 @@ import {
   type DashboardPageData,
   type HoldingsPageData,
 } from "@/lib/portfolio/page-data";
-import { valuePortfolio } from "@/lib/portfolio/value-portfolio";
+import { valueOverviewPortfolio } from "@/lib/portfolio/value-portfolio";
 import type {
   CreateHoldingInput,
   CreateLotInput,
@@ -67,18 +67,19 @@ export async function updateManualValue(
 }
 
 export async function deleteHolding(holdingId: string): Promise<void> {
+  if (
+    holdingId.startsWith("wallet:") ||
+    holdingId.startsWith("handpicked:")
+  ) {
+    throw new Error("Cannot delete a derived wallet or handpicked position");
+  }
   deleteHoldingFromRepo(getDb(), holdingId);
   revalidatePath("/");
   revalidatePath("/holdings");
 }
 
 export async function forceRefreshPortfolio(): Promise<void> {
-  await valuePortfolio(getDb(), {
-    forceRefresh: true,
-    holdingTypes: ["equity", "manual"],
-    includeWalletCrypto: true,
-    includeHandpickedCrypto: true,
-  });
+  await valueOverviewPortfolio(getDb(), { forceRefresh: true });
   revalidatePath("/");
   revalidatePath("/holdings");
 }

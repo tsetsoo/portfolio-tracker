@@ -56,7 +56,10 @@ export function HoldingsPageClient() {
       <header className="page-header">
         <p className="eyebrow">Portfolio record</p>
         <h1>Holdings</h1>
-        <p>Review each position and the lots that make up its cost basis.</p>
+        <p>
+          Same positions as Home — wallet and curated crypto, plus equities and
+          manual holdings.
+        </p>
       </header>
 
       {error && <p className="page-load-error">{error}</p>}

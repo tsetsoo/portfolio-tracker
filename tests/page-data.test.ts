@@ -74,11 +74,34 @@ describe("page data loaders", () => {
       throw new Error(`no quote for ${symbol}`);
     });
 
+    const getCryptoQuotes = vi.fn(async (symbols: string[]) => {
+      const map = new Map();
+      for (const symbol of symbols) {
+        if (symbol === "ETH") {
+          map.set("ETH", {
+            price: 3000,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T09:00:00.000Z",
+          });
+        } else {
+          // Handpicked STX/AVAX/DOT — price at 0 so they don't affect total.
+          map.set(symbol, {
+            price: 0,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T09:00:00.000Z",
+          });
+        }
+      }
+      return map;
+    });
+
     const data = await loadDashboardPageData(db, {
       getQuote,
+      getCryptoQuotes,
       getFxRate: vi.fn(async () => ({ rate: 0.9, stale: false })),
       today: "2026-07-25",
-      includeHandpickedCrypto: false,
     });
 
     // Equity 900 + wallet ETH 6000 — exchange crypto holding excluded.
@@ -125,24 +148,67 @@ describe("page data loaders", () => {
     expect(data.snapshots.some((s) => s.date === "2026-07-25")).toBe(false);
   });
 
-  it("loads holdings page valuation with lots keyed by holding id", async () => {
+  it("loads holdings page with same crypto sources as home", async () => {
     const db = makeDb();
     db.exec(`
       UPDATE settings SET base_currency = 'EUR' WHERE id = 1;
       INSERT INTO holdings
         (id, type, symbol, name, quote_currency, manual_value, notes, updated_at)
       VALUES
-        ('equity-1', 'equity', 'ACME', 'Acme Corp', 'USD', NULL, NULL, '2026-07-20');
+        ('equity-1', 'equity', 'ACME', 'Acme Corp', 'USD', NULL, NULL, '2026-07-20'),
+        ('crypto-1', 'crypto', 'BTC', 'Bitcoin', 'EUR', NULL, NULL, '2026-07-20');
       INSERT INTO lots
         (id, holding_id, quantity, cost_per_unit, cost_currency, purchased_at, fees)
       VALUES
-        ('lot-1', 'equity-1', 10, 80, 'USD', '2025-01-01', 0);
+        ('lot-1', 'equity-1', 10, 80, 'USD', '2025-01-01', 0),
+        ('lot-c', 'crypto-1', 1, 10000, 'EUR', '2025-01-01', 0);
+      INSERT INTO wallets
+        (id, chain, address, balance, balance_asset, created_at)
+      VALUES
+        ('w-eth', 'eth', '0xabc', 2, 'ETH', '2026-07-20');
     `);
 
-    const data = await loadHoldingsPageData(db, quotes());
+    const getQuote = vi.fn(async (symbol: string) => {
+      if (symbol === "ACME") {
+        return {
+          price: 100,
+          currency: "USD",
+          stale: false,
+          fetchedAt: "2026-07-25T09:00:00.000Z",
+        };
+      }
+      throw new Error(`no quote for ${symbol}`);
+    });
+    const getCryptoQuotes = vi.fn(async (symbols: string[]) => {
+      const map = new Map();
+      for (const symbol of symbols) {
+        map.set(symbol, {
+          price: symbol === "ETH" ? 3000 : 0,
+          currency: "EUR",
+          stale: false,
+          fetchedAt: "2026-07-25T09:00:00.000Z",
+        });
+      }
+      return map;
+    });
 
-    expect(data.valuation.holdings).toHaveLength(1);
+    const data = await loadHoldingsPageData(db, {
+      getQuote,
+      getCryptoQuotes,
+      getFxRate: vi.fn(async () => ({ rate: 0.9, stale: false })),
+    });
+
+    expect(
+      data.valuation.holdings.some((h) => h.holding.id === "crypto-1"),
+    ).toBe(false);
+    expect(
+      data.valuation.holdings.some((h) => h.holding.id === "wallet:ETH"),
+    ).toBe(true);
+    expect(
+      data.valuation.holdings.some((h) => h.holding.id === "equity-1"),
+    ).toBe(true);
     expect(data.lotsByHolding["equity-1"]).toHaveLength(1);
     expect(data.lotsByHolding["equity-1"][0]?.id).toBe("lot-1");
+    expect(data.lotsByHolding["crypto-1"]).toBeUndefined();
   });
 });

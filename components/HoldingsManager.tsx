@@ -106,18 +106,21 @@ function HoldingCard({
             </button>
           </form>
         )}
-        <form
-          action={async (formData) => {
-            await deleteHoldingAction(formData);
-            onMutated?.();
-          }}
-          className="delete-holding-form"
-        >
-          <input type="hidden" name="holdingId" value={item.holding.id} />
-          <button type="submit" className="danger-button">
-            Delete
-          </button>
-        </form>
+        {!item.holding.id.startsWith("wallet:") &&
+          !item.holding.id.startsWith("handpicked:") && (
+            <form
+              action={async (formData) => {
+                await deleteHoldingAction(formData);
+                onMutated?.();
+              }}
+              className="delete-holding-form"
+            >
+              <input type="hidden" name="holdingId" value={item.holding.id} />
+              <button type="submit" className="danger-button">
+                Delete
+              </button>
+            </form>
+          )}
       </div>
 
       {lots.length > 0 && (

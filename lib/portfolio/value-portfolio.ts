@@ -206,6 +206,25 @@ function valueWalletPosition(input: {
   };
 }
 
+/**
+ * Shared Home + Holdings valuation: equities/manual from DB, plus wallet and
+ * curated handpicked crypto. Excludes residual exchange crypto lots.
+ */
+export async function valueOverviewPortfolio(
+  db: Database.Database,
+  opts: Omit<
+    ValuePortfolioOptions,
+    "holdingTypes" | "includeWalletCrypto" | "includeHandpickedCrypto"
+  > = {},
+): Promise<PortfolioValuation> {
+  return valuePortfolio(db, {
+    ...opts,
+    holdingTypes: ["equity", "manual"],
+    includeWalletCrypto: true,
+    includeHandpickedCrypto: true,
+  });
+}
+
 export async function valuePortfolio(
   db: Database.Database,
   opts: ValuePortfolioOptions = {},

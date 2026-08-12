@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
-  valuePortfolio: vi.fn().mockResolvedValue(undefined),
+  valueOverviewPortfolio: vi.fn().mockResolvedValue(undefined),
   updateManualValue: vi.fn().mockReturnValue({ id: "manual-1" }),
   deleteHolding: vi.fn(),
 }));
@@ -16,7 +16,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 vi.mock("@/lib/portfolio/value-portfolio", () => ({
-  valuePortfolio: mocks.valuePortfolio,
+  valueOverviewPortfolio: mocks.valueOverviewPortfolio,
 }));
 
 vi.mock("@/lib/portfolio/page-data", () => ({
@@ -68,7 +68,7 @@ import {
 describe("portfolio form actions", () => {
   beforeEach(() => {
     mocks.revalidatePath.mockClear();
-    mocks.valuePortfolio.mockClear();
+    mocks.valueOverviewPortfolio.mockClear();
     mocks.updateManualValue.mockClear();
     mocks.deleteHolding.mockClear();
   });
