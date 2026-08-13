@@ -1,4 +1,6 @@
 import { formatMoney, formatSignedMoney } from "@/lib/format-money";
+import { Card } from "@/components/ui/Card";
+import { DeltaPill, directionOf } from "@/components/ui/Delta";
 
 interface NetWorthHeaderProps {
   total: number;
@@ -15,33 +17,34 @@ export function NetWorthHeader({
   currency,
   asOf,
 }: NetWorthHeaderProps) {
-  const direction =
-    profitLoss > 0 ? "gain" : profitLoss < 0 ? "loss" : "neutral";
+  const direction = directionOf(profitLoss);
 
   return (
-    <header className="net-worth-header">
-      <div>
-        <p className="eyebrow">Total portfolio</p>
-        <h1>{formatMoney(total, currency)}</h1>
-        <p className="as-of">
-          Valued {new Intl.DateTimeFormat("en", {
-            dateStyle: "medium",
-            timeStyle: "short",
-          }).format(new Date(asOf))}
-        </p>
+    <Card as="div" className="p-6 sm:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="min-w-0">
+          <p className="eyebrow">Total portfolio</p>
+          <p className="mt-3 font-mono text-[clamp(38px,9vw,64px)] font-medium leading-[1] tracking-[-0.04em]">
+            {formatMoney(total, currency)}
+          </p>
+          <p className="mt-3 text-[11px] text-faint">
+            Valued{" "}
+            {new Intl.DateTimeFormat("en", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(asOf))}
+          </p>
+        </div>
+
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <span className="eyebrow">Unrealized P&amp;L</span>
+          <DeltaPill
+            direction={direction}
+            value={formatSignedMoney(profitLoss, currency)}
+            percent={profitLossPct}
+          />
+        </div>
       </div>
-      <div className={`pl-summary ${direction}`}>
-        <span>Unrealized P&amp;L</span>
-        <strong>{formatSignedMoney(profitLoss, currency)}</strong>
-        {profitLossPct != null && (
-          <small>
-            {profitLossPct > 0 ? "+" : ""}
-            {profitLossPct.toFixed(2)}%
-          </small>
-        )}
-      </div>
-    </header>
+    </Card>
   );
 }
-
-export { formatMoney, formatSignedMoney };

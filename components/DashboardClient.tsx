@@ -12,6 +12,13 @@ import { HoldingsList } from "@/components/HoldingsList";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { NetWorthHeader } from "@/components/NetWorthHeader";
 import { OutdatedBanner } from "@/components/OutdatedBanner";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Page } from "@/components/ui/PageHeader";
+import { SectionHeading } from "@/components/ui/SectionHeading";
+import { StatTile } from "@/components/ui/StatTile";
+import { RefreshIcon } from "@/components/ui/icons";
+import { formatMoney } from "@/lib/format-money";
 import type { HoldingType, ValuedHolding } from "@/lib/domain/types";
 
 const SECTIONS: Array<{
@@ -39,32 +46,34 @@ function HoldingsSection({
   eyebrow,
   holdings,
   currency,
+  totalBase,
 }: {
   title: string;
   eyebrow: string;
   holdings: ValuedHolding[];
   currency: string;
+  totalBase: number;
 }) {
   if (holdings.length === 0) return null;
 
   return (
-    <section className="dashboard-panel holdings-panel">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-        <span>
-          {holdings.length} {holdings.length === 1 ? "position" : "positions"}
-        </span>
-      </div>
-      <div className="mobile-holdings">
+    <Card className="mt-4">
+      <SectionHeading
+        eyebrow={eyebrow}
+        title={title}
+        meta={`${holdings.length} ${holdings.length === 1 ? "position" : "positions"}`}
+      />
+      <div className="lg:hidden">
         <HoldingsList holdings={holdings} currency={currency} />
       </div>
-      <div className="desktop-holdings">
-        <HoldingsTable holdings={holdings} currency={currency} />
+      <div className="hidden lg:block">
+        <HoldingsTable
+          holdings={holdings}
+          currency={currency}
+          totalBase={totalBase}
+        />
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -138,36 +147,55 @@ export function DashboardClient() {
   }
 
   const busy = isPending || isRefreshing || !data;
+  const total = data?.valuation.totalBase ?? 0;
+
+  const tiles = data
+    ? SECTIONS.map((section) => {
+        const value = data.valuation.holdings
+          .filter((item) => item.holding.type === section.type)
+          .reduce((sum, item) => sum + item.currentValueBase, 0);
+        return {
+          label: section.title,
+          value,
+          share: total > 0 ? value / total : 0,
+        };
+      }).filter((tile) => tile.value !== 0)
+    : [];
 
   return (
-    <main className="dashboard" aria-busy={busy || undefined}>
-      <div className="dashboard-toolbar">
-        <p>Overview</p>
-        <button
-          className="refresh-button"
-          type="button"
+    <Page aria-busy={busy || undefined}>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <p className="eyebrow">Overview</p>
+        <Button
+          variant="secondary"
           onClick={refreshPrices}
           disabled={isPending || isRefreshing}
         >
-          <span aria-hidden="true">↻</span>
+          <RefreshIcon />
           {isRefreshing && data
             ? "Refreshing…"
             : isPending && data
               ? "Loading…"
               : "Refresh prices"}
-        </button>
+        </Button>
       </div>
 
-      {error && <p className="page-load-error">{error}</p>}
+      {error && (
+        <p className="mb-4 rounded-card border border-loss/30 bg-loss/8 px-4 py-3 text-xs text-loss">
+          {error}
+        </p>
+      )}
 
       {!data ? (
-        <div className="page-loading" role="status">
+        <div className="py-8 text-sm text-dim" role="status">
           Loading portfolio…
         </div>
       ) : (
         <>
           {(data.valuation.pricesOutdated || isRefreshing) && (
-            <OutdatedBanner />
+            <div className="mb-4">
+              <OutdatedBanner />
+            </div>
           )}
 
           <NetWorthHeader
@@ -178,19 +206,30 @@ export function DashboardClient() {
             asOf={data.valuation.asOf}
           />
 
-          <section className="dashboard-panel history-panel">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Daily close</p>
-                <h2>Portfolio history</h2>
-              </div>
-              <span>{data.snapshots.length} snapshots</span>
+          {tiles.length > 1 && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {tiles.map((tile) => (
+                <StatTile
+                  key={tile.label}
+                  label={tile.label}
+                  value={formatMoney(tile.value, data.valuation.baseCurrency)}
+                  share={tile.share}
+                />
+              ))}
             </div>
+          )}
+
+          <Card className="mt-4">
+            <SectionHeading
+              eyebrow="Daily close"
+              title="Portfolio history"
+              meta={`${data.snapshots.length} snapshots`}
+            />
             <HistoryChart
               snapshots={data.snapshots}
               currency={data.valuation.baseCurrency}
             />
-          </section>
+          </Card>
 
           {SECTIONS.map((section) => (
             <HoldingsSection
@@ -203,10 +242,11 @@ export function DashboardClient() {
                 ),
               )}
               currency={data.valuation.baseCurrency}
+              totalBase={data.valuation.totalBase}
             />
           ))}
         </>
       )}
-    </main>
+    </Page>
   );
 }

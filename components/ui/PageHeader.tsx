@@ -1,15 +1,16 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /** Page container. Bottom padding clears the fixed mobile tab bar. */
 export function Page({
   children,
   width = "wide",
   className = "",
+  ...rest
 }: {
   children: ReactNode;
   width?: "wide" | "narrow" | "slim";
   className?: string;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   const max =
     width === "slim"
       ? "max-w-3xl"
@@ -20,6 +21,7 @@ export function Page({
   return (
     <main
       className={`mx-auto ${max} px-4 pb-28 pt-6 sm:px-6 lg:px-10 lg:pb-16 lg:pt-9 ${className}`}
+      {...rest}
     >
       {children}
     </main>

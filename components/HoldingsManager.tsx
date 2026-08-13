@@ -6,7 +6,7 @@ import {
 } from "@/app/actions/portfolio";
 import type { HoldingType, Lot, ValuedHolding } from "@/lib/domain/types";
 
-import { formatMoney, formatSignedMoney } from "./NetWorthHeader";
+import { formatMoney, formatSignedMoney } from "@/lib/format-money";
 
 interface HoldingsManagerProps {
   holdings: ValuedHolding[];

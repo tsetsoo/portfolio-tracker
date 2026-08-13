@@ -14,6 +14,9 @@ interface HistoryChartProps {
   currency: string;
 }
 
+const GAIN = "#3fdd8a";
+const DIM = "#8494a6";
+
 function compactMoney(value: number, currency: string): string {
   const code = currency.trim().toUpperCase() || "USD";
   try {
@@ -31,27 +34,41 @@ function compactMoney(value: number, currency: string): string {
   }
 }
 
+function formatDay(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
 export function HistoryChart({ snapshots, currency }: HistoryChartProps) {
   if (snapshots.length < 2) {
     return (
-      <div className="chart-empty">
-        <span aria-hidden="true">—</span>
-        <p>Portfolio history will appear after two daily snapshots.</p>
+      <div className="flex h-[220px] flex-col items-center justify-center gap-3 p-5 text-center sm:h-[260px] lg:h-[290px]">
+        <span
+          aria-hidden="true"
+          className="flex size-10 items-center justify-center rounded-full border border-dashed border-line-strong font-mono text-dim"
+        >
+          —
+        </span>
+        <p className="text-xs text-dim">
+          Portfolio history will appear after two daily snapshots.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="chart-frame">
+    <div className="h-[220px] py-4 pr-3 sm:h-[260px] lg:h-[290px]">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart
           data={snapshots}
-          margin={{ top: 12, right: 8, bottom: 0, left: 0 }}
+          margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
         >
           <defs>
             <linearGradient id="history-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#2f7554" stopOpacity={0.2} />
-              <stop offset="100%" stopColor="#2f7554" stopOpacity={0} />
+              <stop offset="0%" stopColor={GAIN} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={GAIN} stopOpacity={0} />
             </linearGradient>
           </defs>
           <XAxis
@@ -59,13 +76,8 @@ export function HistoryChart({ snapshots, currency }: HistoryChartProps) {
             axisLine={false}
             tickLine={false}
             minTickGap={40}
-            tick={{ fill: "#60727c", fontSize: 11 }}
-            tickFormatter={(date: string) =>
-              new Intl.DateTimeFormat("en", {
-                month: "short",
-                day: "numeric",
-              }).format(new Date(`${date}T00:00:00`))
-            }
+            tick={{ fill: DIM, fontSize: 11 }}
+            tickFormatter={formatDay}
           />
           <YAxis
             hide
@@ -73,22 +85,34 @@ export function HistoryChart({ snapshots, currency }: HistoryChartProps) {
             padding={{ top: 20, bottom: 20 }}
           />
           <Tooltip
-            formatter={(value) => [
-              compactMoney(Number(value), currency),
-              "Total",
-            ]}
-            labelFormatter={(date) =>
-              new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
-                new Date(`${String(date)}T00:00:00`),
-              )
+            cursor={{ stroke: "rgba(255,255,255,0.18)", strokeWidth: 1 }}
+            content={({ active, payload, label }) =>
+              active && payload && payload.length > 0 ? (
+                <div className="rounded-lg border border-line-strong bg-elevated px-3 py-2 shadow-lg">
+                  <p className="eyebrow">
+                    {new Intl.DateTimeFormat("en", {
+                      dateStyle: "medium",
+                    }).format(new Date(`${String(label)}T00:00:00`))}
+                  </p>
+                  <p className="mt-1 font-mono text-sm tabular-nums text-text">
+                    {compactMoney(Number(payload[0].value), currency)}
+                  </p>
+                </div>
+              ) : null
             }
           />
           <Area
             type="monotone"
             dataKey="totalBase"
-            stroke="#2f7554"
+            stroke={GAIN}
             strokeWidth={2}
             fill="url(#history-fill)"
+            activeDot={{
+              r: 3.5,
+              fill: GAIN,
+              stroke: "#0a0e14",
+              strokeWidth: 2,
+            }}
             animationDuration={450}
           />
         </AreaChart>
