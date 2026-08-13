@@ -189,8 +189,10 @@ anyway.
 ## Verification
 
 1. `npm run lint` — clean.
-2. `npm test` — the existing suite passes unchanged. No test asserts on CSS
-   class names; this is confirmed before starting, and any that do are updated.
+2. `npm test` — the existing suite passes unchanged. Checked: no test asserts on
+   CSS class names. `tests/sidebar-nav.test.tsx` passes `className="desktop-nav"`
+   as a prop but never asserts on it, so `SidebarNav` keeps its
+   `{ links, className, ariaLabel }` prop signature and the test stays valid.
 3. `npm run build` — succeeds.
 4. `npm run dev`, then drive the app and screenshot all five pages at 390px and
    1440px. Confirm: no light-mode remnants, no horizontal body scroll, focus
