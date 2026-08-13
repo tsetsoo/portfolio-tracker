@@ -4,8 +4,13 @@ import {
   deleteHoldingAction,
   updateManualValueAction,
 } from "@/app/actions/portfolio";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
+import { directionOf, toneClass } from "@/components/ui/Delta";
+import { FIELD_CONTROL } from "@/components/ui/Field";
+import { SectionHeading } from "@/components/ui/SectionHeading";
 import type { HoldingType, Lot, ValuedHolding } from "@/lib/domain/types";
-
 import { formatMoney, formatSignedMoney } from "@/lib/format-money";
 
 interface HoldingsManagerProps {
@@ -56,110 +61,129 @@ function HoldingCard({
   onMutated?: () => void;
 }) {
   const pl = item.unrealizedPlBase;
-  const direction = pl == null ? "neutral" : pl >= 0 ? "gain" : "loss";
+  const direction = directionOf(pl);
+  const isManual = item.holding.type === "manual";
+  const isDerived =
+    item.holding.id.startsWith("wallet:") ||
+    item.holding.id.startsWith("handpicked:");
 
   return (
-    <article className="managed-holding">
-      <div className="managed-holding-summary">
-        <div className="holding-identity">
-          <span>{item.holding.symbol ?? "MAN"}</span>
-          <p>{item.holding.name}</p>
+    <article className="border-b border-line last:border-b-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_120px_150px]">
+        <div className="min-w-0">
+          <span className="font-mono text-[13px] font-semibold">
+            {item.holding.symbol ?? "MAN"}
+          </span>
+          <p className="mt-0.5 truncate text-[11px] text-dim">
+            {item.holding.name}
+          </p>
         </div>
-        <div className="managed-quantity">
-          <span>Units</span>
-          <strong>
-            {item.holding.type === "manual"
-              ? "—"
-              : formatQuantity(item.quantity)}
+
+        <div className="hidden sm:grid">
+          <span className="eyebrow">Units</span>
+          <strong className="mt-0.5 font-mono text-xs font-semibold tabular-nums">
+            {isManual ? "—" : formatQuantity(item.quantity)}
           </strong>
         </div>
-        <div className="holding-value">
-          <strong>{formatMoney(item.currentValueBase, currency)}</strong>
-          <span className={direction}>
+
+        <div className="grid justify-items-end">
+          <strong className="font-mono text-[13px] font-semibold tabular-nums">
+            {formatMoney(item.currentValueBase, currency)}
+          </strong>
+          <span
+            className={`mt-0.5 font-mono text-[10px] tabular-nums ${toneClass(direction)}`}
+          >
             {pl == null ? "Manual value" : formatSignedMoney(pl, currency)}
           </span>
         </div>
       </div>
 
-      <div className="managed-holding-actions">
-        {item.holding.type === "manual" && (
-          <form
-            action={async (formData) => {
-              await updateManualValueAction(formData);
-              onMutated?.();
-            }}
-            className="manual-value-form"
-          >
-            <input type="hidden" name="holdingId" value={item.holding.id} />
-            <label>
-              Value ({item.holding.quoteCurrency ?? currency})
-              <input
-                name="manualValue"
-                type="number"
-                step="any"
-                defaultValue={item.holding.manualValue ?? 0}
-                required
-              />
-            </label>
-            <button type="submit" className="secondary-button">
-              Save
-            </button>
-          </form>
-        )}
-        {!item.holding.id.startsWith("wallet:") &&
-          !item.holding.id.startsWith("handpicked:") && (
+      {(isManual || !isDerived) && (
+        <div className="flex flex-wrap items-end gap-3 border-t border-line bg-base/40 px-5 py-3">
+          {isManual && (
+            <form
+              action={async (formData) => {
+                await updateManualValueAction(formData);
+                onMutated?.();
+              }}
+              className={`flex flex-1 items-end gap-2 ${FIELD_CONTROL}`}
+            >
+              <input type="hidden" name="holdingId" value={item.holding.id} />
+              <label className="grid max-w-[200px] flex-1 gap-1.5">
+                <span className="eyebrow">
+                  Value ({item.holding.quoteCurrency ?? currency})
+                </span>
+                <input
+                  name="manualValue"
+                  type="number"
+                  step="any"
+                  defaultValue={item.holding.manualValue ?? 0}
+                  required
+                />
+              </label>
+              <Button type="submit" variant="secondary">
+                Save
+              </Button>
+            </form>
+          )}
+          {!isDerived && (
             <form
               action={async (formData) => {
                 await deleteHoldingAction(formData);
                 onMutated?.();
               }}
-              className="delete-holding-form"
+              className="ml-auto"
             >
               <input type="hidden" name="holdingId" value={item.holding.id} />
-              <button type="submit" className="danger-button">
+              <Button type="submit" variant="danger">
                 Delete
-              </button>
+              </Button>
             </form>
           )}
-      </div>
+        </div>
+      )}
 
       {lots.length > 0 && (
-        <details className="lots-disclosure">
-          <summary>
-            <span className="lots-summary-label">
+        <details className="group border-t border-line bg-base/40">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[11px] font-bold transition-colors duration-150 hover:bg-elevated [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-baseline gap-2 uppercase tracking-[0.04em]">
               Purchases
-              <em>
+              <em className="text-[11px] font-semibold normal-case not-italic tracking-normal text-dim">
                 {lots.length} {lots.length === 1 ? "lot" : "lots"}
               </em>
             </span>
-            <span className="lots-chevron" aria-hidden="true" />
+            <span
+              aria-hidden="true"
+              className="inline-block size-2 rotate-45 border-b-2 border-r-2 border-dim transition-transform duration-150 group-open:rotate-[225deg]"
+            />
           </summary>
-          <div className="lots-scroll">
-            <table className="lots-table">
-              <thead>
-                <tr>
-                  <th>Bought</th>
-                  <th className="numeric">Units @ price</th>
-                  <th className="numeric">Fees</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lots.map((lot) => (
-                  <tr key={lot.id}>
-                    <td>{formatDate(lot.purchasedAt)}</td>
-                    <td className="numeric lots-fill">
-                      <strong>{formatQuantity(lot.quantity)}</strong>
-                      <span> @ </span>
-                      {formatMoney(lot.costPerUnit, lot.costCurrency)}
-                    </td>
-                    <td className="numeric">
-                      {formatMoney(lot.fees, lot.costCurrency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            head={
+              <tr>
+                <th>Bought</th>
+                <th className="numeric">Units @ price</th>
+                <th className="numeric">Fees</th>
+              </tr>
+            }
+          >
+            {lots.map((lot) => (
+              <tr key={lot.id}>
+                <td className="whitespace-nowrap text-dim">
+                  {formatDate(lot.purchasedAt)}
+                </td>
+                <td className="numeric">
+                  <strong className="font-semibold text-text">
+                    {formatQuantity(lot.quantity)}
+                  </strong>
+                  <span className="text-faint"> @ </span>
+                  {formatMoney(lot.costPerUnit, lot.costCurrency)}
+                </td>
+                <td className="numeric text-dim">
+                  {formatMoney(lot.fees, lot.costCurrency)}
+                </td>
+              </tr>
+            ))}
+          </DataTable>
         </details>
       )}
     </article>
@@ -184,14 +208,14 @@ export function HoldingsManager({
 }: HoldingsManagerProps) {
   if (holdings.length === 0) {
     return (
-      <p className="holdings-empty">
+      <p className="px-4 py-8 text-center text-xs text-dim">
         No holdings yet. Use a form below to add your first asset.
       </p>
     );
   }
 
   return (
-    <div className="managed-holdings">
+    <div className="grid gap-4">
       {SECTIONS.map((section) => {
         const items = sortHoldings(
           holdings.filter((item) => item.holding.type === section.type),
@@ -199,20 +223,12 @@ export function HoldingsManager({
         if (items.length === 0) return null;
 
         return (
-          <section
-            className="holdings-type-section"
-            key={section.type}
-            aria-label={section.title}
-          >
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">{section.eyebrow}</p>
-                <h2>{section.title}</h2>
-              </div>
-              <span>
-                {items.length} {items.length === 1 ? "position" : "positions"}
-              </span>
-            </div>
+          <Card key={section.type} aria-label={section.title}>
+            <SectionHeading
+              eyebrow={section.eyebrow}
+              title={section.title}
+              meta={`${items.length} ${items.length === 1 ? "position" : "positions"}`}
+            />
             {items.map((item) => (
               <HoldingCard
                 key={item.holding.id}
@@ -222,7 +238,7 @@ export function HoldingsManager({
                 onMutated={onMutated}
               />
             ))}
-          </section>
+          </Card>
         );
       })}
     </div>

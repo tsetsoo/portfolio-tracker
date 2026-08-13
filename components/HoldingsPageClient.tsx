@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/portfolio";
 import { HoldingForm } from "@/components/HoldingForm";
 import { HoldingsManager } from "@/components/HoldingsManager";
+import { Page, PageHeader } from "@/components/ui/PageHeader";
 
 export function HoldingsPageClient() {
   const [data, setData] = useState<HoldingsPageData | null>(null);
@@ -49,39 +50,22 @@ export function HoldingsPageClient() {
   }, []);
 
   return (
-    <main
-      className="dashboard management-page"
-      aria-busy={isPending || !data || undefined}
-    >
-      <header className="page-header">
-        <p className="eyebrow">Portfolio record</p>
-        <h1>Holdings</h1>
-        <p>
-          Same positions as Home — wallet and curated crypto, plus equities and
-          manual holdings.
+    <Page width="narrow" aria-busy={isPending || !data || undefined}>
+      <PageHeader
+        eyebrow="Portfolio record"
+        title="Holdings"
+        description="Same positions as Home — wallet and curated crypto, plus equities and manual holdings."
+      />
+
+      {error && (
+        <p className="mt-6 rounded-card border border-loss/30 bg-loss/8 px-4 py-3 text-xs text-loss">
+          {error}
         </p>
-      </header>
+      )}
 
-      {error && <p className="page-load-error">{error}</p>}
-
-      <section className="dashboard-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Valued now</p>
-            <h2>Current positions</h2>
-          </div>
-          <span>
-            {data
-              ? `${data.valuation.holdings.length} ${
-                  data.valuation.holdings.length === 1
-                    ? "position"
-                    : "positions"
-                }`
-              : "…"}
-          </span>
-        </div>
+      <div className="mt-6">
         {!data ? (
-          <div className="page-loading" role="status">
+          <div className="py-8 text-sm text-dim" role="status">
             Loading holdings…
           </div>
         ) : (
@@ -92,15 +76,15 @@ export function HoldingsPageClient() {
             onMutated={reload}
           />
         )}
-      </section>
+      </div>
 
-      <section className="management-section">
-        <div className="section-intro">
-          <p className="eyebrow">New position</p>
-          <h2>Add a holding</h2>
-        </div>
+      <section className="mt-10 border-t border-line pt-8">
+        <p className="eyebrow">New position</p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">
+          Add a holding
+        </h2>
         <HoldingForm onMutated={reload} />
       </section>
-    </main>
+    </Page>
   );
 }
