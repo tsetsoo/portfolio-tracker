@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { type ReactNode, useTransition } from "react";
 
 export type NavLink = {
   href: string;
   label: string;
+  icon?: ReactNode;
 };
 
 function isActivePath(pathname: string, href: string): boolean {
@@ -63,6 +64,7 @@ export function SidebarNav({
               });
             }}
           >
+            {link.icon}
             {link.label}
           </Link>
         );
