@@ -1,34 +1,48 @@
 .wizard {
   display: grid;
   gap: 16px;
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 .step {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   display: grid;
   gap: 16px;
-  padding: 18px;
+  padding: 20px;
 }
 
 .stepLabel {
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--color-line);
   display: flex;
   gap: 14px;
   padding-bottom: 14px;
 }
 
+/* Numbered marker. Filled once the step is reachable. */
 .stepLabel > span {
-  color: var(--gain);
-  font: 600 24px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
-  letter-spacing: -0.08em;
+  align-items: center;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-line-strong);
+  border-radius: 999px;
+  color: var(--color-text);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
 }
 
 .stepLabel h2 {
   font-size: 16px;
-  margin-top: 2px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .hiddenInput {
@@ -42,108 +56,117 @@
   width: 1px;
 }
 
-.brokerTabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.brokerTab,
-.brokerTabActive {
-  border: 1px solid var(--line);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 10px 14px;
-}
-
-.brokerTab {
-  background: #f8faf9;
-  color: var(--ink-soft);
-}
-
-.brokerTabActive {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #f4f7f5;
-}
-
-.brokerTab:focus-visible,
-.brokerTabActive:focus-visible {
-  outline: 2px solid #79a88e;
-  outline-offset: 3px;
-}
-
+.brokerTabs,
 .formatTabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.brokerTab,
+.brokerTabActive,
 .formatTab,
 .formatTabActive {
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 11px;
   font-weight: 600;
-  padding: 8px 12px;
+  transition: color 150ms ease-out, border-color 150ms ease-out,
+    background-color 150ms ease-out;
 }
 
+.brokerTab,
+.brokerTabActive {
+  font-size: 12px;
+  padding: 9px 14px;
+}
+
+.formatTab,
+.formatTabActive {
+  font-size: 11px;
+  padding: 7px 12px;
+}
+
+.brokerTab,
 .formatTab {
-  background: var(--surface);
-  color: var(--muted);
+  background: var(--color-elevated);
+  color: var(--color-dim);
+}
+
+.brokerTab:hover,
+.formatTab:hover {
+  border-color: var(--color-line-strong);
+  color: var(--color-text);
+}
+
+/* Selection is monochrome: chrome carries no hue. */
+.brokerTabActive {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-base);
 }
 
 .formatTabActive {
-  background: var(--gain-wash);
-  border-color: var(--gain);
-  color: var(--gain);
+  background: var(--color-elevated);
+  border-color: var(--color-line-strong);
+  color: var(--color-text);
 }
 
+.brokerTab:focus-visible,
+.brokerTabActive:focus-visible,
 .formatTab:focus-visible,
-.formatTabActive:focus-visible {
-  outline: 2px solid #79a88e;
-  outline-offset: 3px;
+.formatTabActive:focus-visible,
+.filePicker:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.7);
+  outline-offset: 2px;
 }
 
 .filePicker {
   align-items: center;
-  background: #f8faf9;
-  border: 1px dashed #9cafaa;
-  color: var(--ink-soft);
+  background: var(--color-elevated);
+  border: 1px dashed var(--color-line-strong);
+  border-radius: 12px;
+  color: var(--color-dim);
   cursor: pointer;
   display: flex;
+  gap: 12px;
   justify-content: space-between;
-  min-height: 64px;
+  min-height: 68px;
   padding: 14px 16px;
   text-align: left;
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.filePicker:hover {
+  background: var(--color-surface);
+  border-color: rgb(255 255 255 / 0.28);
 }
 
 .filePicker span {
-  color: var(--muted);
-  font: 11px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .filePicker strong {
-  color: var(--gain);
+  color: var(--color-text);
   font-size: 12px;
-}
-
-.filePicker:focus-visible {
-  outline: 2px solid #79a88e;
-  outline-offset: 3px;
+  font-weight: 600;
 }
 
 .filePicker:disabled,
 .step :global(.primary-button):disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.45;
 }
 
 .counts {
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
   display: grid;
   gap: 1px;
   grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
 }
 
 @media (min-width: 720px) {
@@ -153,18 +176,23 @@
 }
 
 .counts span {
-  background: #f3f7f5;
-  color: var(--muted);
+  background: var(--color-elevated);
+  color: var(--color-faint);
   display: grid;
   font-size: 9px;
-  gap: 2px;
-  padding: 10px;
+  gap: 3px;
+  letter-spacing: 0.1em;
+  padding: 11px;
   text-transform: uppercase;
 }
 
 .counts strong {
-  color: var(--ink);
-  font: 600 18px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .noteLegend {
@@ -173,6 +201,8 @@
 }
 
 .tableScroll {
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
   overflow-x: auto;
 }
 
@@ -184,44 +214,54 @@
 }
 
 .table th {
-  background: #f8faf9;
-  color: var(--muted);
+  background: var(--color-elevated);
+  color: var(--color-faint);
   font-size: 9px;
-  letter-spacing: 0.08em;
-  padding: 9px 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 10px;
   text-align: left;
   text-transform: uppercase;
 }
 
 .table td {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--color-line);
+  color: var(--color-dim);
   padding: 10px;
   white-space: nowrap;
 }
 
+.table tbody tr:hover td {
+  background: var(--color-elevated);
+}
+
 .table .numeric {
-  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .empty,
 .message {
-  color: var(--muted);
   font-size: 12px;
 }
 
 .empty {
-  border: 1px dashed var(--line);
-  padding: 24px;
+  border: 1px dashed var(--color-line-strong);
+  border-radius: 12px;
+  color: var(--color-dim);
+  padding: 26px;
   text-align: center;
 }
 
 .errors {
-  background: var(--warning-wash);
-  border-left: 3px solid #bd8c31;
-  color: #644b21;
+  background: rgb(245 181 74 / 0.08);
+  border: 1px solid rgb(245 181 74 / 0.25);
+  border-radius: 10px;
+  color: var(--color-warn);
   font-size: 11px;
-  padding: 10px 12px;
+  padding: 11px 13px;
 }
 
 .errors summary {
@@ -230,47 +270,50 @@
 }
 
 .errors ul {
+  color: var(--color-dim);
   list-style: none;
   margin-top: 8px;
 }
 
 .message {
-  background: var(--gain-wash);
-  border-left: 3px solid var(--gain);
-  color: #285d44;
+  background: rgb(63 221 138 / 0.08);
+  border: 1px solid rgb(63 221 138 / 0.25);
+  border-radius: 10px;
+  color: var(--color-gain);
   padding: 11px 13px;
 }
 
 .importName {
-  color: var(--ink-soft);
+  color: var(--color-faint);
   display: grid;
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 700;
   gap: 6px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .importName input {
-  background: #fbfcfb;
-  border: 1px solid #bdcac5;
-  color: var(--ink);
-  font: 13px "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
   letter-spacing: normal;
   min-height: 40px;
-  padding: 9px 10px;
+  padding: 9px 12px;
   text-transform: none;
   width: 100%;
 }
 
-.importName input:focus {
-  border-color: var(--gain);
-  outline: 2px solid #dceae2;
-  outline-offset: 1px;
+.importName input:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.7);
+  outline-offset: 2px;
 }
 
 .importNameHint {
-  color: var(--muted);
+  color: var(--color-dim);
   font-size: 11px;
   font-weight: 400;
   letter-spacing: normal;

@@ -1,8 +1,7 @@
 import { WalletsManager } from "@/components/WalletsManager";
+import { Page, PageHeader } from "@/components/ui/PageHeader";
 import { getDb } from "@/lib/db/client";
-import {
-  costCoverageRatio,
-} from "@/lib/wallets/cost-coverage";
+import { costCoverageRatio } from "@/lib/wallets/cost-coverage";
 import {
   countTransfersByWallet,
   listTokenBalancesForWallet,
@@ -49,35 +48,22 @@ export default function WalletsPage() {
   });
 
   return (
-    <main className="dashboard management-page">
-      <header className="page-header">
-        <p className="eyebrow">On-chain watch</p>
-        <h1>Wallets</h1>
-        <p>
-          Track ETH/BTC/BCH addresses and ERC-20 balances. Wallet assets roll
-          into overview net worth. Scan exchange withdrawal hashes to resolve
-          destinations and attach FIFO cost.
-        </p>
-      </header>
+    <Page>
+      <PageHeader
+        eyebrow="On-chain watch"
+        title="Wallets"
+        description="Track ETH/BTC/BCH addresses and ERC-20 balances. Wallet assets roll into overview net worth. Scan exchange withdrawal hashes to resolve destinations and attach FIFO cost."
+      />
 
-      <section className="dashboard-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">On-chain balances</p>
-            <h2>Tracked addresses</h2>
-          </div>
-          <span>
-            {walletItems.length}{" "}
-            {walletItems.length === 1 ? "wallet" : "wallets"}
-          </span>
-        </div>
-        <p className="section-note">
-          Bitcoin is watch-only via account xpub (receive + change). Ethereum
-          and Bitcoin Cash use a normal address. Import Crypto.com App history
-          and Binance Withdraw History (with TxIDs) for FIFO cost on transfers.
-          ERC-20 tokens worth ≥ €10 (e.g. LINK) appear under ETH wallets after
-          Refresh balances.
-        </p>
+      <p className="mt-6 max-w-3xl text-[11px] leading-relaxed text-dim">
+        Bitcoin is watch-only via account xpub (receive + change). Ethereum and
+        Bitcoin Cash use a normal address. Import Crypto.com App history and
+        Binance Withdraw History (with TxIDs) for FIFO cost on transfers. ERC-20
+        tokens worth ≥ €10 (e.g. LINK) appear under ETH wallets after Refresh
+        balances.
+      </p>
+
+      <div className="mt-5">
         <WalletsManager
           wallets={walletItems}
           transfersByWallet={transfersByWallet}
@@ -86,7 +72,7 @@ export default function WalletsPage() {
           )}
           pendingCount={pendingCount}
         />
-      </section>
-    </main>
+      </div>
+    </Page>
   );
 }

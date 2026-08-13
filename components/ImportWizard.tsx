@@ -10,6 +10,7 @@ import {
   previewCryptoComCsv,
   previewIbkrCsv,
 } from "@/app/actions/import";
+import { Button } from "@/components/ui/Button";
 import type {
   BinanceImportFormat,
   BinanceImportPreview,
@@ -365,7 +366,7 @@ export function ImportWizard() {
             <h2>{copy.title}</h2>
           </div>
         </div>
-        <p className="form-note">{copy.hint}</p>
+        <p className="text-[11px] leading-relaxed text-dim">{copy.hint}</p>
         <input
           ref={inputRef}
           className={styles.hiddenInput}
@@ -499,14 +500,14 @@ export function ImportWizard() {
             </label>
           )}
 
-          <button
-            className="primary-button"
-            type="button"
+          <Button
+            variant="primary"
+            className="justify-self-start"
             disabled={isPending || !canCommit}
             onClick={confirmImport}
           >
             {isPending ? "Importing…" : "Import reviewed trades"}
-          </button>
+          </Button>
         </section>
       )}
 
