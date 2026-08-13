@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 
-import {
-  deletePastImport,
-  renamePastImport,
-} from "@/app/actions/import";
+import { deletePastImport, renamePastImport } from "@/app/actions/import";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { FIELD_CONTROL } from "@/components/ui/Field";
+import { SectionHeading } from "@/components/ui/SectionHeading";
 import type { ImportBatch } from "@/lib/import/batches";
 import type { ImportBroker } from "@/lib/import/batch-names";
 
@@ -70,74 +71,69 @@ export function PastImports({ batches }: { batches: ImportBatch[] }) {
 
   if (batches.length === 0) {
     return (
-      <section className="dashboard-panel past-imports-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">History</p>
-            <h2>Past imports</h2>
-          </div>
-        </div>
-        <p className="form-note">
+      <Card className="mt-4">
+        <SectionHeading eyebrow="History" title="Past imports" />
+        <p className="px-5 py-6 text-[11px] text-dim">
           Successful imports will appear here with the name you give them.
         </p>
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="dashboard-panel past-imports-panel">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">History</p>
-          <h2>Past imports</h2>
-        </div>
-        <span>{batches.length}</span>
-      </div>
+    <Card className="mt-4">
+      <SectionHeading
+        eyebrow="History"
+        title="Past imports"
+        meta={String(batches.length)}
+      />
 
-      <ul className="past-imports-list">
+      <ul className="grid gap-3 p-5">
         {batches.map((batch) => (
-          <li key={batch.id} className="past-import-row">
-            <div className="past-import-main">
+          <li
+            key={batch.id}
+            className="grid items-start gap-3 rounded-lg border border-line bg-elevated/40 p-4 sm:grid-cols-[minmax(0,1fr)_auto]"
+          >
+            <div className="grid min-w-0 gap-1">
               {editingId === batch.id ? (
-                <div className="past-import-rename">
+                <div className={`flex flex-wrap gap-2 ${FIELD_CONTROL}`}>
                   <input
                     value={draftName}
                     onChange={(event) => setDraftName(event.target.value)}
                     aria-label="Import name"
                     disabled={isPending}
+                    className="flex-1 min-w-45"
                   />
-                  <button
-                    className="primary-button"
-                    type="button"
+                  <Button
+                    variant="primary"
                     disabled={isPending || !draftName.trim()}
                     onClick={() => saveRename(batch.id)}
                   >
                     Save
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="secondary"
                     disabled={isPending}
                     onClick={() => setEditingId(null)}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               ) : (
-                <h3>{batch.name}</h3>
+                <h3 className="text-sm font-semibold">{batch.name}</h3>
               )}
-              <p className="past-import-meta">
+              <p className="text-[11px] text-dim">
                 {BROKER_LABELS[batch.broker]}
                 {batch.sourceDetail ? ` · ${batch.sourceDetail}` : ""}
                 {" · "}
                 {formatWhen(batch.createdAt)}
               </p>
               {batch.fileNames.length > 0 && (
-                <p className="past-import-files">
+                <p className="font-mono text-[11px] break-words text-faint">
                   {batch.fileNames.join(", ")}
                 </p>
               )}
-              <p className="past-import-counts">
+              <p className="text-[11px] text-dim">
                 {batch.lotsInserted} inserted · {batch.duplicates} duplicates ·{" "}
                 {batch.closedCount} closed · {batch.skippedCount} skipped
                 {batch.symbolsTouched.length > 0
@@ -145,24 +141,23 @@ export function PastImports({ batches }: { batches: ImportBatch[] }) {
                   : ""}
               </p>
             </div>
+
             {editingId !== batch.id && (
-              <div className="past-import-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
                   disabled={isPending}
                   onClick={() => startRename(batch)}
                 >
                   Rename
-                </button>
-                <button
-                  className="danger-button"
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
                   disabled={isPending}
                   onClick={() => removeHistory(batch.id)}
                 >
                   Remove history
-                </button>
+                </Button>
               </div>
             )}
           </li>
@@ -170,10 +165,10 @@ export function PastImports({ batches }: { batches: ImportBatch[] }) {
       </ul>
 
       {message && (
-        <p className="form-note" role="status">
+        <p className="px-5 pb-5 text-[11px] text-dim" role="status">
           {message}
         </p>
       )}
-    </section>
+    </Card>
   );
 }
