@@ -81,10 +81,14 @@ export function HoldingsTable({
               {formatMoney(item.currentValueBase, currency)}
               {share != null && (
                 <span
-                  className="mt-1.5 ml-auto block h-[2px] rounded-full bg-text/25"
-                  style={{ width: `${Math.min(100, share * 100)}%` }}
+                  className="mt-1.5 ml-auto block h-[3px] w-14 overflow-hidden rounded-full bg-elevated"
                   aria-hidden="true"
-                />
+                >
+                  <span
+                    className="block h-full rounded-full bg-text/30"
+                    style={{ width: `${Math.min(100, share * 100)}%` }}
+                  />
+                </span>
               )}
             </td>
             <td className={`numeric ${toneClass(direction)}`}>

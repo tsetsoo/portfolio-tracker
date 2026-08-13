@@ -85,7 +85,7 @@ function Disclosure({
   children: ReactNode;
 }) {
   return (
-    <details className="group border-t border-line bg-base/40" open={open}>
+    <details className="group border-t border-line bg-canvas/40" open={open}>
       <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[11px] font-bold uppercase tracking-[0.04em] transition-colors duration-150 hover:bg-elevated [&::-webkit-details-marker]:hidden">
         <span className="inline-flex items-baseline gap-2">
           {label}
@@ -546,7 +546,7 @@ export function WalletsManager({
                 )}
 
                 <div
-                  className={`flex flex-wrap items-end gap-3 border-t border-line bg-base/40 px-5 py-3 ${FIELD_CONTROL}`}
+                  className={`flex flex-wrap items-end gap-3 border-t border-line bg-canvas/40 px-5 py-3 ${FIELD_CONTROL}`}
                 >
                   <form
                     className="flex flex-1 items-end gap-2"

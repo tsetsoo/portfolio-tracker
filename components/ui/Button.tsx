@@ -3,10 +3,10 @@ import type { ButtonHTMLAttributes } from "react";
 type Variant = "primary" | "secondary" | "danger" | "ghost";
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-text text-base hover:bg-white",
+  primary: "bg-text text-canvas hover:bg-white",
   secondary:
     "border border-line bg-elevated text-text hover:border-line-strong hover:text-white",
-  danger: "border border-loss/40 text-loss hover:bg-loss hover:text-base",
+  danger: "border border-loss/40 text-loss hover:bg-loss hover:text-canvas",
   ghost: "text-dim hover:text-text",
 };
 

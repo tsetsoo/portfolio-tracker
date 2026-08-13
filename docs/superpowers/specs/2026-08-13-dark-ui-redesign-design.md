@@ -26,9 +26,14 @@ active navigation, and focus rings are white or grey. Green and red appear only
 on profit-and-loss figures and the history chart, so the numbers are the
 loudest thing on screen.
 
+The page-background token is named `canvas`, not `base`: a `--color-base` entry
+makes Tailwind emit a `text-base` *color* utility that shadows the built-in
+`text-base` *font-size* utility, which silently paints every heading in the
+near-black page color.
+
 | Token | Value | Use |
 | --- | --- | --- |
-| `--color-base` | `#0A0E14` | Page background |
+| `--color-canvas` | `#0A0E14` | Page background |
 | `--color-surface` | `#111823` | Cards, sidebar |
 | `--color-elevated` | `#18202C` | Table headers, hover rows, inputs |
 | `--color-line` | `rgba(255,255,255,0.07)` | Hairline borders |

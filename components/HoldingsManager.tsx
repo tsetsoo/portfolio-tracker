@@ -99,7 +99,7 @@ function HoldingCard({
       </div>
 
       {(isManual || !isDerived) && (
-        <div className="flex flex-wrap items-end gap-3 border-t border-line bg-base/40 px-5 py-3">
+        <div className="flex flex-wrap items-end gap-3 border-t border-line bg-canvas/40 px-5 py-3">
           {isManual && (
             <form
               action={async (formData) => {
@@ -144,7 +144,7 @@ function HoldingCard({
       )}
 
       {lots.length > 0 && (
-        <details className="group border-t border-line bg-base/40">
+        <details className="group border-t border-line bg-canvas/40">
           <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-[11px] font-bold transition-colors duration-150 hover:bg-elevated [&::-webkit-details-marker]:hidden">
             <span className="inline-flex items-baseline gap-2 uppercase tracking-[0.04em]">
               Purchases

@@ -51,23 +51,25 @@ const holding: ValuedHolding = {
 };
 
 describe("dashboard UI", () => {
-  it("keeps Import in desktop navigation only", () => {
+  it("reaches every destination from both the sidebar and the mobile tab bar", () => {
     const html = renderToStaticMarkup(
       <AppShell>
         <p>Dashboard</p>
       </AppShell>,
     );
 
-    expect(html).toContain('aria-label="Desktop navigation"');
-    expect(html).toContain('href="/import"');
+    expect(html).toContain('aria-label="Main navigation"');
     expect(html).toContain('aria-label="Mobile navigation"');
 
     const mobileNavigation = html.match(
-      /<nav class="mobile-nav"[\s\S]*?<\/nav>/,
+      /<nav[^>]*aria-label="Mobile navigation"[\s\S]*?<\/nav>/,
     )?.[0];
-    expect(mobileNavigation).toContain('href="/"');
-    expect(mobileNavigation).toContain('href="/settings"');
-    expect(mobileNavigation).not.toContain('href="/import"');
+    expect(mobileNavigation).toBeDefined();
+
+    // The tab bar carries all five destinations; the old top bar dropped Import.
+    for (const href of ["/", "/holdings", "/wallets", "/import", "/settings"]) {
+      expect(mobileNavigation).toContain(`href="${href}"`);
+    }
   });
 
   it("renders portfolio total and signed gain", () => {

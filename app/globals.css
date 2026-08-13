@@ -2,7 +2,7 @@
 
 @theme {
   /* Surfaces — cool near-black stepping up as elements gain elevation. */
-  --color-base: #0a0e14;
+  --color-canvas: #0a0e14;
   --color-surface: #111823;
   --color-elevated: #18202c;
 
@@ -46,7 +46,7 @@
   }
 
   body {
-    background: var(--color-base);
+    background: var(--color-canvas);
     color: var(--color-text);
     font-family: var(--font-sans);
     font-size: 14px;

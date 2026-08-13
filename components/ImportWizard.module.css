@@ -103,7 +103,7 @@
 .brokerTabActive {
   background: var(--color-text);
   border-color: var(--color-text);
-  color: var(--color-base);
+  color: var(--color-canvas);
 }
 
 .formatTabActive {
