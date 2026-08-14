@@ -26,7 +26,7 @@ const SIDEBAR_NAV =
   "[&>a]:px-3 [&>a]:py-2.5 [&>a]:text-[13px] [&>a]:text-dim [&>a]:transition-colors [&>a]:duration-150 " +
   "[&>a:hover]:bg-elevated [&>a:hover]:text-text " +
   "[&>a[aria-current=page]]:border-white [&>a[aria-current=page]]:bg-elevated [&>a[aria-current=page]]:text-text " +
-  "[&>a:focus-visible]:outline-2 [&>a:focus-visible]:outline-offset-2 [&>a:focus-visible]:outline-white/70 " +
+  "[&>a:focus-visible]:outline [&>a:focus-visible]:outline-2 [&>a:focus-visible]:outline-offset-2 [&>a:focus-visible]:outline-white/70 " +
   "[&[data-pending=true]>a]:opacity-50";
 
 const TAB_NAV =
@@ -34,13 +34,13 @@ const TAB_NAV =
   "[&>a]:flex [&>a]:flex-col [&>a]:items-center [&>a]:gap-1 [&>a]:py-2.5 " +
   "[&>a]:text-[10px] [&>a]:font-medium [&>a]:text-faint [&>a]:transition-colors [&>a]:duration-150 " +
   "[&>a[aria-current=page]]:text-text " +
-  "[&>a:focus-visible]:outline-2 [&>a:focus-visible]:-outline-offset-2 [&>a:focus-visible]:outline-white/70 " +
+  "[&>a:focus-visible]:outline [&>a:focus-visible]:outline-2 [&>a:focus-visible]:-outline-offset-2 [&>a:focus-visible]:outline-white/70 " +
   "[&[data-pending=true]>a]:opacity-50";
 
 function Wordmark({ compact = false }: { compact?: boolean }) {
   return (
     <Link
-      className="inline-flex items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70"
+      className="inline-flex items-center gap-2.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70"
       href="/"
       aria-label="Portfolio Ledger home"
     >

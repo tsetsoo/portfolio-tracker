@@ -12,7 +12,7 @@ const VARIANTS: Record<Variant, string> = {
 
 const BASE =
   "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold transition-colors duration-150 " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 " +
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 " +
   "disabled:cursor-not-allowed disabled:opacity-45";
 
 export function Button({

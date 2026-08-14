@@ -102,7 +102,7 @@ export function PastImports({ batches }: { batches: ImportBatch[] }) {
                     onChange={(event) => setDraftName(event.target.value)}
                     aria-label="Import name"
                     disabled={isPending}
-                    className="flex-1 min-w-45"
+                    className="flex-1 min-w-[11.25rem]"
                   />
                   <Button
                     variant="primary"

@@ -25,7 +25,7 @@ export function SettingsForm({ baseCurrency }: { baseCurrency: string }) {
           pattern="[A-Za-z]{3}"
           required
           aria-describedby="currency-hint"
-          className="max-w-32 uppercase"
+          className="max-w-[8rem] uppercase"
         />
         <Button variant="primary" type="submit" className="shrink-0">
           Save changes
