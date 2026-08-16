@@ -16,6 +16,7 @@ import {
   type DashboardPageData,
   type HoldingsPageData,
 } from "@/lib/portfolio/page-data";
+
 import { valueOverviewPortfolio } from "@/lib/portfolio/value-portfolio";
 import type {
   CreateHoldingInput,
@@ -23,7 +24,10 @@ import type {
 } from "@/lib/holdings-repo";
 import { normalizeCurrencyCode } from "@/lib/settings";
 
-export type { DashboardPageData, HoldingsPageData };
+// No type re-exports here. A "use server" module may only export async
+// functions: turbopack compiles every export as a value, so re-exporting a
+// type throws "X is not defined" on render. Consumers import DashboardPageData
+// and HoldingsPageData straight from @/lib/portfolio/page-data instead.
 
 export async function loadDashboardData(input?: {
   cacheOnly?: boolean;

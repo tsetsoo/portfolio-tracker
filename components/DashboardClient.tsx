@@ -2,11 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 
-import {
-  forceRefreshPortfolio,
-  loadDashboardData,
-  type DashboardPageData,
-} from "@/app/actions/portfolio";
+import { forceRefreshPortfolio, loadDashboardData } from "@/app/actions/portfolio";
+import type { DashboardPageData } from "@/lib/portfolio/page-data";
 import { HistoryChart } from "@/components/HistoryChart";
 import { HoldingsList } from "@/components/HoldingsList";
 import { HoldingsTable } from "@/components/HoldingsTable";

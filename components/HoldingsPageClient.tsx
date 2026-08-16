@@ -2,10 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
-import {
-  loadHoldingsData,
-  type HoldingsPageData,
-} from "@/app/actions/portfolio";
+import { loadHoldingsData } from "@/app/actions/portfolio";
+import type { HoldingsPageData } from "@/lib/portfolio/page-data";
 import { HoldingForm } from "@/components/HoldingForm";
 import { HoldingsManager } from "@/components/HoldingsManager";
 import { Page, PageHeader } from "@/components/ui/PageHeader";
