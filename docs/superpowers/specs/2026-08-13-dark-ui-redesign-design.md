@@ -2,6 +2,10 @@
 
 Date: 2026-08-13
 
+> **Superseded in part — see "Amendments" at the end.** This document specifies
+> Tailwind **v4**; the implementation shipped on **v3** because v4 cannot
+> cross-build for the Raspberry Pi. Everything else here was built as written.
+
 ## Goal
 
 Replace the current light "paper & ink" editorial styling with a modern dark
@@ -138,7 +142,7 @@ holds no state.
 
 Page header, then one card per asset class. Each position is a row with symbol,
 name, units, value, and P&L; the lots disclosure keeps its `<details>` structure
-with a restyled chevron and an inset `--color-base` panel when open. Add-holding
+with a restyled chevron and an inset `--color-canvas` panel when open. Add-holding
 forms move into cards with the new `Field` and `Button` primitives.
 
 ### Wallets (`WalletsManager`)
@@ -203,3 +207,44 @@ anyway.
    1440px. Confirm: no light-mode remnants, no horizontal body scroll, focus
    rings visible on every interactive element, and the bottom tab bar clearing
    page content on mobile.
+
+## Amendments
+
+Recorded after implementation. The visual design shipped exactly as specified;
+these are the technical deviations forced by the deployment target.
+
+### Tailwind v3, not v4
+
+The spec's "Tailwind v4" decision did not survive contact with the Pi. v4's
+engine `@tailwindcss/oxide` declares `engines: node >= 20`, so npm skips its
+armv7 binary on the Node 18 build image, and the CSS pipeline then fails on a
+missing native `lightningcss.linux-arm-gnueabihf.node`. The Pi is armv7 with
+glibc 2.28 and could not meet v4's requirements.
+
+v3 is pure JS with no native dependencies. Tokens moved from the `@theme` block
+into `tailwind.config.js`, mirrored as custom properties in `globals.css` for
+`ImportWizard.module.css`. Rendered output is unchanged — verified by screenshot
+comparison of both builds.
+
+Three v3 gaps had to be closed, all of which fail silently rather than erroring,
+so each was checked against the compiled CSS rather than trusting a green build:
+
+- v3's opacity scale lacks `8`, `45` and `85` — would have dropped the amber
+  stale-price banner and disabled-button dimming. Extended in the config.
+- `max-w-32` / `min-w-45` do not exist outside v4's spacing scale — replaced
+  with arbitrary values.
+- v3's `outline-2` sets only `outline-width`; without `outline` for the style,
+  **every focus ring would have been invisible**.
+
+### Deployment moved into a container
+
+Not part of this spec's scope, noted here because it constrains the CSS stack.
+The Pi host cannot run Node 20+ at all (its libstdc++ provides `GLIBCXX_3.4.25`,
+node 20+ needs `3.4.26`; side-loading a newer libstdc++ fails because that needs
+`GLIBC_2.29` against Buster's 2.28). Rather than dist-upgrade a host also running
+homebridge, nginx, docker and tailscale, the app now runs in `node:22-bullseye`
+on the Pi's existing Docker. See `README.md` and `deploy/pi/`.
+
+This does not unblock Tailwind v4: the build image is now Node 22, but v3 is
+working, verified and carries no native dependencies, so there is no reason to
+move back.

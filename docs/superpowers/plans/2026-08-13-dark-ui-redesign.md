@@ -1,5 +1,11 @@
 # Dark UI Redesign Implementation Plan
 
+> **Executed and complete.** One deviation: Task 1 prescribes Tailwind **v4**, but
+> the app shipped on **v3** — v4's engine requires Node >= 20 and native armv7
+> binaries the Raspberry Pi build cannot provide. Token names moved into
+> `tailwind.config.js` instead of an `@theme` block; every other task was carried
+> out as written. See the Amendments section of the design doc.
+
 > **For agentic workers:** Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the light "paper & ink" stylesheet with a dark fintech interface built on Tailwind CSS v4, across all five pages.
