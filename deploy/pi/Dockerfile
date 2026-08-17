@@ -1,31 +1,43 @@
-# Cross-build Next standalone + better-sqlite3 for Raspberry Pi 3
-# (armv7 / Raspbian Buster, glibc 2.28).
+# Cross-build the Next standalone tree + better-sqlite3 for the Raspberry Pi.
 #
-# Must run under the *target* platform (QEMU), not BUILDPLATFORM — otherwise
-# better-sqlite3 ships amd64 .node binaries that won't load on the Pi.
+# The Pi host is Raspbian Buster (glibc 2.28, libstdc++ GLIBCXX_3.4.25), which
+# cannot run Node 20+ natively — those binaries need GLIBCXX_3.4.26, and
+# side-loading a newer libstdc++ fails because it in turn wants GLIBC_2.29.
+# See deploy/pi/install-node.sh.
+#
+# So the app runs inside a container instead, which brings its own userspace and
+# makes the host's glibc irrelevant. This image is therefore BOTH the build image
+# and the runtime image: better-sqlite3 is a native module, so its NODE_MODULE_-
+# VERSION and glibc must match whatever executes it. The tag is written into the
+# release payload as NODE_IMAGE and read back by deploy/pi/run-container.sh, so
+# runtime can never drift from the ABI it was compiled against.
+#
+# bullseye (glibc 2.31), not bookworm (2.36), on purpose: the Pi runs Docker
+# 20.10.5, which predates the 20.10.10 seccomp fix for clone3, and glibc >= 2.34
+# containers fail on it.
+#
+# Must build under the *target* platform via QEMU, not BUILDPLATFORM, or the
+# native .node binaries come out as amd64 and won't load on the Pi.
 #
 # Build (from repo root):
 #   docker buildx build --platform linux/arm/v7 -f deploy/pi/Dockerfile \
 #     --target export --output type=local,dest=./pi-dist .
-# Pin a last-published Buster tag (Buster variants were dropped from docker-node).
-# Must include linux/arm/v7 so QEMU/buildx can produce Pi-compatible natives.
-FROM node:18.19.1-buster AS deps
+
+ARG NODE_IMAGE=node:22-bullseye
+
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
-# Buster is EOL — packages only on archive.debian.org now.
-RUN sed -i \
-      -e 's|deb.debian.org/debian|archive.debian.org/debian|g' \
-      -e 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' \
-      -e '/buster-updates/d' \
-      /etc/apt/sources.list \
-  && apt-get -o Acquire::Check-Valid-Until=false update \
+RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
-# Native module must match the Pi's glibc — build from source on buster armv7.
+# Compile better-sqlite3 here rather than downloading a prebuild, so it matches
+# this image's Node ABI and glibc exactly.
 ENV npm_config_build_from_source=true
 RUN npm ci --no-audit --no-fund
 
-FROM node:18.19.1-buster AS build
+FROM ${NODE_IMAGE} AS build
+ARG NODE_IMAGE
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -36,6 +48,7 @@ RUN npm run build \
   && mkdir -p /out/.next \
   && cp -a .next/static /out/.next/static \
   && if [ -d public ]; then cp -a public /out/public; fi \
+  && printf '%s\n' "${NODE_IMAGE}" > /out/NODE_IMAGE \
   && chmod -R a+rX /out
 
 # Export stage for `docker buildx build --output type=local`

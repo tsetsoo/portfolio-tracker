@@ -1,20 +1,23 @@
 [Unit]
-Description=Portfolio tracker (Next.js + SQLite)
-After=network-online.target
+Description=Portfolio tracker (Next.js + SQLite, containerised)
+After=network-online.target docker.service
 Wants=network-online.target
+Requires=docker.service
 
 [Service]
 Type=simple
 User=pi
 Group=pi
-WorkingDirectory=/opt/portfolio/current
-Environment=NODE_ENV=production
-Environment=HOSTNAME=0.0.0.0
+WorkingDirectory=/opt/portfolio
 Environment=PORT=8081
-Environment=DATABASE_PATH=/opt/portfolio/data/portfolio.db
-ExecStart=/opt/portfolio/node/bin/node /opt/portfolio/current/server.js
+# run-container.sh picks the runtime image from the release's NODE_IMAGE file,
+# falling back to the host's Node 18 for pre-container releases.
+ExecStart=/opt/portfolio/run-container.sh
+ExecStopPost=-/usr/bin/docker rm -f portfolio-app
 Restart=on-failure
 RestartSec=3
+# Pulling the runtime image on a cold start can take a while on a Pi 3.
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target

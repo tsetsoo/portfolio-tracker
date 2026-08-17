@@ -71,6 +71,17 @@ fi
 chmod -R a+rX "$dest"
 chown -R pi:pi "$dest"
 
+# Pull the release's runtime image before the flip, so the restart is not
+# waiting on a multi-minute download while the old release is already gone.
+# Non-fatal: run-container.sh retries, and a cached image still starts offline.
+if [[ -f "$dest/NODE_IMAGE" ]]; then
+  node_image="$(tr -d '[:space:]' < "$dest/NODE_IMAGE")"
+  if [[ -n "$node_image" ]]; then
+    echo "pre-pulling $node_image"
+    docker pull "$node_image" >/dev/null 2>&1 || echo "pre-pull failed; will retry at start"
+  fi
+fi
+
 flip_current "$dest"
 
 restart_failed=0

@@ -33,6 +33,14 @@ USDT/USDC lots convert via USD for FX. Unsupported CoinGecko symbols import as l
 
 Same layout idea as the todo app (`/opt/todo` → `/opt/portfolio`). Listens on **`:8081`** so it does not clash with todo on `:8080`.
 
+The app runs in a **`node:22-bullseye` container** on the Pi's existing Docker. The
+host is Raspbian Buster and cannot run Node 20+ natively (its libstdc++ only goes
+to `GLIBCXX_3.4.25`; Node 20+ needs `3.4.26`), so the container supplies its own
+userspace and the host OS is left alone. `better-sqlite3` is native, so the image
+that builds a release is the image that runs it — CI stamps the tag into the
+release as `NODE_IMAGE` and `run-container.sh` reads it back. Releases without
+that file predate containerisation and fall back to the host's Node 18.
+
 ```bash
 # once on the Pi
 scp -r deploy/pi raspberrypi:~/portfolio-deploy
