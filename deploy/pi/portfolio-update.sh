@@ -6,6 +6,8 @@ PORTFOLIO_RELEASE_BASE="${PORTFOLIO_RELEASE_BASE:-https://github.com/tsetsoo/por
 PORTFOLIO_HEALTH_URL="${PORTFOLIO_HEALTH_URL:-http://127.0.0.1:8081/}"
 PORTFOLIO_SYSTEMCTL="${PORTFOLIO_SYSTEMCTL:-systemctl}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
+# Seconds to wait for the new release to answer before rolling back.
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
 mkdir -p "$PORTFOLIO_ROOT/releases" "$PORTFOLIO_ROOT/data"
 
@@ -89,7 +91,10 @@ restart_failed=0
 
 ok=0
 if [[ "$restart_failed" -eq 0 ]]; then
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  # Containerised releases cold-start far slower than a bare node process: on a
+  # Pi 3 the first request lands ~35s after restart. The old 15s budget rolled
+  # back a perfectly healthy deploy, so allow well over the observed worst case.
+  for _ in $(seq 1 "$HEALTH_TIMEOUT"); do
     if curl -fsS "$PORTFOLIO_HEALTH_URL" >/dev/null; then
       ok=1
       break

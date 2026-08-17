@@ -35,8 +35,13 @@ fi
 # to whatever it pointed at when the mount was set up.
 APP_DIR="$(readlink -f "$CURRENT")"
 
-# Best-effort pull; a cached image must still start when GitHub/DockerHub is down.
-docker pull "$IMAGE" >/dev/null 2>&1 || true
+# Only reach for the network when the image is genuinely absent. Pulling an
+# already-cached image costs a pointless round-trip on every restart and burns
+# Docker Hub rate limit; portfolio-update.sh pre-pulls on deploy anyway.
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "image $IMAGE not present locally; pulling"
+  docker pull "$IMAGE" >/dev/null 2>&1 || true
+fi
 
 # A crashed run can leave the name taken.
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
