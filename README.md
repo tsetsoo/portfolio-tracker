@@ -45,9 +45,11 @@ that file predate containerisation and fall back to the host's Node 18.
 # once on the Pi
 scp -r deploy/pi raspberrypi:~/portfolio-deploy
 ssh raspberrypi 'cd ~/portfolio-deploy && sudo ./install-node.sh && sudo ./bootstrap.sh'
-
-# from this repo on your Mac (builds on the Pi)
-./deploy/pi/sync-and-build.sh
 ```
+
+Deploys happen through GitHub Actions: a push to `main` builds the armv7
+artifact, publishes it as the `pi-latest` release, and the Pi's
+`portfolio-update.timer` picks it up within ~2 minutes. To force one without a
+code change, run the **Deploy Pi** workflow via `workflow_dispatch`.
 
 Then open `http://raspberrypi:8081` or `http://100.118.255.23:8081` on the tailnet.
