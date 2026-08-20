@@ -183,6 +183,7 @@ export function previewBinanceWithdrawFromDb(
       costCurrency: row.costCurrency,
       partial: row.partial,
       missingCurrencies: row.missingCurrencies,
+      lotSlices: row.lotSlices,
     }));
 
   const withdrawals = attachWithdrawalCosts(
