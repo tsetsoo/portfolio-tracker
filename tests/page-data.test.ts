@@ -6,7 +6,6 @@ import {
   loadDashboardPageData,
   loadHoldingsPageData,
 } from "@/lib/portfolio/page-data";
-import type { QuoteService } from "@/lib/quotes/types";
 
 const databases: Database.Database[] = [];
 
@@ -20,18 +19,6 @@ function makeDb(): Database.Database {
 afterEach(() => {
   for (const db of databases.splice(0)) db.close();
 });
-
-function quotes(): Pick<QuoteService, "getQuote" | "getFxRate"> {
-  return {
-    getQuote: vi.fn(async () => ({
-      price: 100,
-      currency: "USD",
-      stale: false,
-      fetchedAt: "2026-07-25T09:00:00.000Z",
-    })),
-    getFxRate: vi.fn(async () => ({ rate: 0.9, stale: false })),
-  };
-}
 
 describe("page data loaders", () => {
   it("loads dashboard valuation, snapshots, and P/L percent", async () => {
