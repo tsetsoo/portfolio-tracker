@@ -151,15 +151,40 @@ export async function runAlerts(opts: {
   return { checked: alerts.length, fired, errors };
 }
 
+let inFlightPass: Promise<RunAlertsResult> | null = null;
+
+/**
+ * Serialises the three wired entry points — the scheduler tick, the "Check
+ * now" server action and POST /api/alerts/run. `lastFiredAt` is only written
+ * after the Telegram send succeeds, so two overlapping passes would both see
+ * the same unfired alert and both send it. A second caller joins the pass
+ * already running and gets its real result rather than a no-op zero.
+ *
+ * Exported for tests; `runAlerts(opts)` stays unguarded so tests can drive
+ * passes independently.
+ */
+export function runAlertsExclusive(
+  pass: () => Promise<RunAlertsResult>,
+): Promise<RunAlertsResult> {
+  if (inFlightPass) return inFlightPass;
+  const started = pass().finally(() => {
+    if (inFlightPass === started) inFlightPass = null;
+  });
+  inFlightPass = started;
+  return started;
+}
+
 /** Wired to the real database, quote service, and env-configured bot. */
-export async function runAlertsNow(): Promise<RunAlertsResult> {
-  const db = getDb();
-  const config = telegramConfigFromEnv();
-  return runAlerts({
-    db,
-    quotes: createQuoteService(db, globalThis.fetch),
-    notifier: config
-      ? createTelegramNotifier(config, globalThis.fetch)
-      : null,
+export function runAlertsNow(): Promise<RunAlertsResult> {
+  return runAlertsExclusive(async () => {
+    const db = getDb();
+    const config = telegramConfigFromEnv();
+    return runAlerts({
+      db,
+      quotes: createQuoteService(db, globalThis.fetch),
+      notifier: config
+        ? createTelegramNotifier(config, globalThis.fetch)
+        : null,
+    });
   });
 }

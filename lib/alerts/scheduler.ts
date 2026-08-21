@@ -4,6 +4,12 @@ import { runAlertsNow } from "@/lib/alerts/run";
 
 const DEFAULT_INTERVAL_MS = 600_000;
 const MIN_INTERVAL_MS = 60_000;
+/**
+ * Node stores a timer delay in a signed 32-bit int; anything larger is clamped
+ * to 1 ms, which would turn the scheduler into a tight loop hammering the
+ * quote providers.
+ */
+const MAX_INTERVAL_MS = 2_147_483_647;
 /** Let the server finish booting before the first pass. */
 const FIRST_PASS_DELAY_MS = 30_000;
 
@@ -20,11 +26,11 @@ export function alertsSchedulerEnabled(
 export function alertsIntervalMs(
   env: Record<string, string | undefined> = process.env,
 ): number {
-  const raw = Number(env.ALERTS_INTERVAL_MS);
+  const raw = Math.trunc(Number(env.ALERTS_INTERVAL_MS));
   if (!Number.isFinite(raw) || raw < MIN_INTERVAL_MS) {
     return DEFAULT_INTERVAL_MS;
   }
-  return raw;
+  return Math.min(raw, MAX_INTERVAL_MS);
 }
 
 async function tick(): Promise<void> {

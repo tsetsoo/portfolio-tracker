@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PriceAlert } from "@/lib/alerts/types";
 import { formatMoney } from "@/lib/format-money";
 
