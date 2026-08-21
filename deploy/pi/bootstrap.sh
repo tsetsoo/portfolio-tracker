@@ -19,11 +19,14 @@ install -d -o root -g root -m 0755 /opt/portfolio /opt/portfolio/releases
 install -d -o pi -g pi -m 0755 /opt/portfolio/data
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-update.sh" /opt/portfolio/portfolio-update.sh
 install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-container.sh
+install -o root -g root -m 0755 "$REPO_DIR/portfolio-backup.sh" /opt/portfolio/portfolio-backup.sh
 install -m 0644 "$REPO_DIR/portfolio.service" /etc/systemd/system/portfolio.service
 install -m 0644 "$REPO_DIR/portfolio-update.service" /etc/systemd/system/portfolio-update.service
 install -m 0644 "$REPO_DIR/portfolio-update.timer" /etc/systemd/system/portfolio-update.timer
 install -m 0644 "$REPO_DIR/portfolio-snapshot.service" /etc/systemd/system/portfolio-snapshot.service
 install -m 0644 "$REPO_DIR/portfolio-snapshot.timer" /etc/systemd/system/portfolio-snapshot.timer
+install -m 0644 "$REPO_DIR/portfolio-backup.service" /etc/systemd/system/portfolio-backup.service
+install -m 0644 "$REPO_DIR/portfolio-backup.timer" /etc/systemd/system/portfolio-backup.timer
 
 systemctl daemon-reload
 
@@ -37,5 +40,6 @@ fi
 systemctl enable --now portfolio.service || true
 systemctl enable --now portfolio-update.timer
 systemctl enable --now portfolio-snapshot.timer
+systemctl enable --now portfolio-backup.timer
 systemctl status portfolio.service --no-pager || true
 systemctl list-timers 'portfolio-*.timer' --no-pager

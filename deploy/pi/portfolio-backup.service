@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up the portfolio database (consistent copy, verified, rotated)
+After=portfolio.service docker.service
+Wants=portfolio.service
+
+[Service]
+Type=oneshot
+# pi owns /opt/portfolio/data and is in the docker group, which is all this
+# needs — the copy is made by the app container, not by root.
+User=pi
+Group=pi
+ExecStart=/opt/portfolio/portfolio-backup.sh
+# A silent backup failure is worse than no backup, so let a non-zero exit stand
+# and surface in `journalctl -u portfolio-backup`. Same precedent as
+# portfolio-snapshot.service.
