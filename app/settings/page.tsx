@@ -1,8 +1,10 @@
 import { ResetPortfolioForm } from "@/components/ResetPortfolioForm";
 import { SettingsForm } from "@/components/SettingsForm";
+import { TelegramTestButton } from "@/components/TelegramTestButton";
 import { Card } from "@/components/ui/Card";
 import { Page, PageHeader } from "@/components/ui/PageHeader";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { telegramConfigFromEnv } from "@/lib/alerts/telegram";
 import { getDb } from "@/lib/db/client";
 import { getSettings } from "@/lib/settings";
 
@@ -26,6 +28,15 @@ export default function SettingsPage() {
           meta={settings.baseCurrency}
         />
         <SettingsForm baseCurrency={settings.baseCurrency} />
+      </Card>
+
+      <Card className="mt-4">
+        <SectionHeading
+          eyebrow="Notifications"
+          title="Telegram alerts"
+          meta={telegramConfigFromEnv() != null ? "configured" : "not set"}
+        />
+        <TelegramTestButton configured={telegramConfigFromEnv() != null} />
       </Card>
 
       <div className="mt-4">
