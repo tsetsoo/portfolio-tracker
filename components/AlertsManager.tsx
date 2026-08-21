@@ -29,8 +29,12 @@ function describeCondition(alert: PriceAlert): string {
 }
 
 function describeStatus(alert: PriceAlert, now: number): string {
+  // A disabled alert is never re-checked, so its recorded error can never
+  // clear. Show both, so neither the off-state nor the reason is hidden.
+  if (!alert.enabled) {
+    return alert.lastError ? `Disabled — ${alert.lastError}` : "Disabled";
+  }
   if (alert.lastError) return alert.lastError;
-  if (!alert.enabled) return "Disabled";
   if (alert.lastFiredAt) {
     const readyAt =
       new Date(alert.lastFiredAt).getTime() + alert.cooldownMinutes * 60_000;
@@ -216,7 +220,11 @@ export function AlertsManager({
           <p className="text-[11px] leading-relaxed text-faint">
             The price is fetched now: a percent alert measures from it, and a
             threshold alert quotes it in the notification. Crypto symbols must
-            exist in the CoinGecko map.
+            exist in the CoinGecko map. There is no edit: change an alert by
+            deleting and re-creating it, which resets a percent alert&rsquo;s
+            baseline. An alert&rsquo;s currency is frozen at create time, so
+            changing the portfolio base currency strands existing alerts on a
+            currency mismatch until you re-create them.
           </p>
         </form>
       </Card>
@@ -235,6 +243,7 @@ export function AlertsManager({
                 <th>Condition</th>
                 <th className="numeric">Reference</th>
                 <th className="numeric">Last price</th>
+                <th>Checked</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -260,6 +269,11 @@ export function AlertsManager({
                   {alert.lastPrice == null
                     ? "—"
                     : formatMoney(alert.lastPrice, alert.currency)}
+                </td>
+                <td className="text-dim">
+                  {alert.lastCheckedAt == null
+                    ? "—"
+                    : new Date(alert.lastCheckedAt).toLocaleString()}
                 </td>
                 <td
                   className={alert.lastError ? "text-warn" : "text-dim"}
