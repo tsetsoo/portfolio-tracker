@@ -222,6 +222,38 @@ describe("alerts repository", () => {
     expect(after?.anchorAt).toBe(alert.createdAt);
   });
 
+  it("rejects a non-positive cooldown", () => {
+    // This CHECK only protects fresh databases: the table is created with
+    // CREATE TABLE IF NOT EXISTS, so an already-provisioned database keeps
+    // its constraint-free cooldown_minutes column, and createAlertAction is
+    // what protects those.
+    expect(() =>
+      createAlert(db, {
+        symbol: "BTC",
+        assetClass: "crypto",
+        kind: "threshold",
+        direction: "above",
+        targetPrice: 100_000,
+        anchorPrice: 96_400,
+        currency: "EUR",
+        cooldownMinutes: 0,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      createAlert(db, {
+        symbol: "BTC",
+        assetClass: "crypto",
+        kind: "threshold",
+        direction: "above",
+        targetPrice: 100_000,
+        anchorPrice: 96_400,
+        currency: "EUR",
+        cooldownMinutes: -5,
+      }),
+    ).toThrow();
+  });
+
   it("deletes an alert", () => {
     const alert = createAlert(db, {
       symbol: "BTC",

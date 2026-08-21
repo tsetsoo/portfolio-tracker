@@ -105,6 +105,48 @@ describe("AlertsManager", () => {
     expect(html).toContain("Cooling down until");
   });
 
+  it("renders the Checked column from lastCheckedAt, or an em-dash when null", () => {
+    const checkedAt = "2026-08-21T12:00:00.000Z";
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ lastCheckedAt: checkedAt })]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain(new Date(checkedAt).toLocaleString());
+
+    const htmlNull = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ lastCheckedAt: null })]}
+        telegramConfigured
+      />,
+    );
+    expect(htmlNull).toContain("—");
+  });
+
+  it("shows both Disabled and the error for a disabled alert with a lastError", () => {
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ enabled: false, lastError: "no quote available" })]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain("Disabled");
+    expect(html).toContain("no quote available");
+    expect(html).toContain("Disabled — no quote available");
+  });
+
+  it("shows plain Disabled for a disabled alert with no error", () => {
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ enabled: false, lastError: null })]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain("Disabled");
+    expect(html).not.toContain("Disabled —");
+  });
+
   it("shows Armed once an alert's cooldown has elapsed", () => {
     const oldFire = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
     const html = renderToStaticMarkup(
