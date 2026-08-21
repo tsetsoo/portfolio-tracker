@@ -1154,7 +1154,7 @@ Create `tests/alerts-run.test.ts`:
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAlert, getAlert } from "@/lib/alerts/repo";
+import { createAlert, getAlert, setAlertEnabled } from "@/lib/alerts/repo";
 import { runAlerts } from "@/lib/alerts/run";
 import type { AlertNotifier } from "@/lib/alerts/telegram";
 import { migrate } from "@/lib/db/migrate";
@@ -1350,16 +1350,24 @@ describe("runAlerts", () => {
       anchorPrice: 180,
       currency: "EUR",
     });
+    const disabled = thresholdAlert("BTC", 1);
+    setAlertEnabled(db, disabled.id, false);
+
     const { service, equityCalls, cryptoCalls } = fakeQuotes({
       AAPL: fresh(140),
+      BTC: fresh(105_240),
     });
     const notifier = fakeNotifier();
 
     const result = await runAlerts({ db, quotes: service, notifier, now: NOW });
 
+    // The disabled BTC alert is never priced and never sends.
     expect(equityCalls).toEqual(["AAPL"]);
     expect(cryptoCalls).toEqual([]);
+    expect(result.checked).toBe(1);
     expect(result.fired).toBe(1);
+    expect(notifier.sent).toHaveLength(1);
+    expect(getAlert(db, disabled.id)?.lastCheckedAt).toBeNull();
   });
 });
 ```
@@ -1830,7 +1838,7 @@ git commit -m "feat: 10-minute alert scheduler, manual run route, Pi secret file
 - Test: `tests/alerts-resolve-symbol.test.ts`
 
 **Interfaces:**
-- Consumes: `coingeckoIdForSymbol` from `@/lib/quotes/crypto-coingecko`; `QuoteService`; `createAlert`, `deleteAlert`, `listAlerts`, `setAlertEnabled` from `@/lib/alerts/repo`; `getSettings` from `@/lib/settings`; `runAlertsNow` from `@/lib/alerts/run`; `telegramConfigFromEnv`, `createTelegramNotifier` from `@/lib/alerts/telegram`.
+- Consumes: `coingeckoIdForSymbol` from `@/lib/quotes/crypto-coingecko`; `QuoteService`; `createAlert`, `deleteAlert`, `setAlertEnabled` from `@/lib/alerts/repo`; `getSettings` from `@/lib/settings`; `runAlertsNow` from `@/lib/alerts/run`; `telegramConfigFromEnv`, `createTelegramNotifier` from `@/lib/alerts/telegram`.
 - Produces: `resolveAlertSymbol(symbol, assetClass, baseCurrency, quotes): Promise<{ symbol: string; price: number; currency: string }>`; server actions `createAlertAction(input: CreateAlertInput): Promise<ActionResult>`, `deleteAlertAction(id: string): Promise<void>`, `toggleAlertAction(id: string, enabled: boolean): Promise<void>`, `runAlertsNowAction(): Promise<RunAlertsResult>`, `sendTestMessageAction(): Promise<ActionResult>`. `ActionResult` is `{ ok: true } | { ok: false; error: string }`. `CreateAlertInput` is `{ symbol: string; assetClass: AssetClass; kind: AlertKind; direction: AlertDirection; targetPrice?: number; percentWhole?: number; cooldownMinutes?: number; label?: string }` — note `percentWhole` is what the user typed (5 for 5%); the action divides by 100.
 
 - [ ] **Step 1: Write the failing test**
@@ -1991,23 +1999,14 @@ Create `app/actions/alerts.ts`:
 
 import { revalidatePath } from "next/cache";
 
-import {
-  createAlert,
-  deleteAlert,
-  listAlerts,
-  setAlertEnabled,
-} from "@/lib/alerts/repo";
+import { createAlert, deleteAlert, setAlertEnabled } from "@/lib/alerts/repo";
 import { resolveAlertSymbol } from "@/lib/alerts/resolve-symbol";
 import { runAlertsNow, type RunAlertsResult } from "@/lib/alerts/run";
 import {
   createTelegramNotifier,
   telegramConfigFromEnv,
 } from "@/lib/alerts/telegram";
-import type {
-  AlertDirection,
-  AlertKind,
-  PriceAlert,
-} from "@/lib/alerts/types";
+import type { AlertDirection, AlertKind } from "@/lib/alerts/types";
 import { getDb } from "@/lib/db/client";
 import { createQuoteService } from "@/lib/quotes/service";
 import type { AssetClass } from "@/lib/quotes/types";
@@ -2033,10 +2032,6 @@ function errorMessage(error: unknown): string {
 
 function revalidateAlerts(): void {
   revalidatePath("/alerts");
-}
-
-export async function listAlertsAction(): Promise<PriceAlert[]> {
-  return listAlerts(getDb());
 }
 
 export async function createAlertAction(
@@ -2125,11 +2120,10 @@ export async function sendTestMessageAction(): Promise<ActionResult> {
     return { ok: false, error: errorMessage(error) };
   }
 }
-
-export async function telegramConfiguredAction(): Promise<boolean> {
-  return telegramConfigFromEnv() != null;
-}
 ```
+
+The page and the settings card call `telegramConfigFromEnv()` directly in
+their server components, so no action wraps it.
 
 - [ ] **Step 6: Verify the project still type-checks and every test passes**
 
