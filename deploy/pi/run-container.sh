@@ -47,6 +47,13 @@ fi
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 echo "starting $IMAGE from $APP_DIR on :$PORT"
+
+# Secrets live outside releases/ so a deploy never overwrites them.
+ENV_FILE_ARGS=()
+if [[ -f "$ROOT/portfolio.env" ]]; then
+  ENV_FILE_ARGS=(--env-file "$ROOT/portfolio.env")
+fi
+
 exec docker run --rm --name "$CONTAINER" \
   --init \
   --user "$(id -u pi):$(id -g pi)" \
@@ -55,6 +62,7 @@ exec docker run --rm --name "$CONTAINER" \
   --env HOSTNAME=0.0.0.0 \
   --env PORT="$PORT" \
   --env DATABASE_PATH=/data/portfolio.db \
+  "${ENV_FILE_ARGS[@]}" \
   --volume "$APP_DIR:/app" \
   --volume "$ROOT/data:/data" \
   --workdir /app \

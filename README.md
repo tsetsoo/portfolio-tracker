@@ -53,3 +53,23 @@ artifact, publishes it as the `pi-latest` release, and the Pi's
 code change, run the **Deploy Pi** workflow via `workflow_dispatch`.
 
 Then open `http://raspberrypi:8081` or `http://100.118.255.23:8081` on the tailnet.
+
+### Price alerts
+
+Alerts are evaluated in-process every 10 minutes and delivered by a Telegram
+bot. Create one with [@BotFather](https://t.me/botfather), message it once, and
+read your chat id from
+`https://api.telegram.org/bot<token>/getUpdates`. Then on the Pi:
+
+```bash
+sudo -u pi tee /opt/portfolio/portfolio.env >/dev/null <<'EOF'
+TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_CHAT_ID=42424242
+EOF
+sudo chmod 0600 /opt/portfolio/portfolio.env
+sudo systemctl restart portfolio
+```
+
+The file lives outside `releases/`, so deploys never overwrite it. Without
+both variables the scheduler runs and reports `telegram-not-configured`
+without sending anything.
