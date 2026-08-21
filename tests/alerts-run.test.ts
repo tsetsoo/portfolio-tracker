@@ -2,7 +2,11 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAlert, getAlert, setAlertEnabled } from "@/lib/alerts/repo";
-import { runAlerts } from "@/lib/alerts/run";
+import {
+  runAlerts,
+  runAlertsExclusive,
+  type RunAlertsResult,
+} from "@/lib/alerts/run";
 import type { AlertNotifier } from "@/lib/alerts/telegram";
 import { migrate } from "@/lib/db/migrate";
 import type { Quote, QuoteService } from "@/lib/quotes/types";
@@ -274,5 +278,39 @@ describe("runAlerts", () => {
     await runAlerts({ db, quotes: service, notifier: fakeNotifier(), now: NOW });
 
     expect(getAlert(db, alert.id)?.anchorPrice).toBe(90_000);
+  });
+});
+
+describe("runAlertsExclusive", () => {
+  it("joins a second caller onto the in-flight pass, then releases for the next one", async () => {
+    let calls = 0;
+    let resolveFirst: (result: RunAlertsResult) => void = () => {};
+    const pass = vi.fn(() => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<RunAlertsResult>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve({ checked: 0, fired: 0, errors: 0 });
+    });
+
+    const firstCall = runAlertsExclusive(pass);
+    const secondCall = runAlertsExclusive(pass);
+
+    // Both callers arrived before the pass settled, so only one pass ran.
+    expect(calls).toBe(1);
+    resolveFirst({ checked: 1, fired: 1, errors: 0 });
+
+    const [first, second] = await Promise.all([firstCall, secondCall]);
+    expect(calls).toBe(1);
+    expect(first).toEqual({ checked: 1, fired: 1, errors: 0 });
+    expect(second).toBe(first);
+
+    // The guard must release once the pass settles: a further call after
+    // that starts a brand new pass rather than wedging the scheduler.
+    const third = await runAlertsExclusive(pass);
+    expect(calls).toBe(2);
+    expect(third).toEqual({ checked: 0, fired: 0, errors: 0 });
   });
 });
