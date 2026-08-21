@@ -53,7 +53,10 @@ describe("telegramConfigFromEnv", () => {
 
 describe("createTelegramNotifier", () => {
   it("posts the message to the bot sendMessage endpoint", async () => {
-    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchImpl = vi.fn(
+      async (url: string, init: RequestInit) =>
+        new Response("{}", { status: 200 }),
+    );
     const notifier = createTelegramNotifier(
       { botToken: "123:abc", chatId: "4242" },
       fetchImpl as unknown as typeof fetch,
@@ -62,7 +65,7 @@ describe("createTelegramNotifier", () => {
     await notifier.send("hello");
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://api.telegram.org/bot123:abc/sendMessage");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({
@@ -74,7 +77,8 @@ describe("createTelegramNotifier", () => {
 
   it("throws on a non-2xx response so the caller can retry", async () => {
     const fetchImpl = vi.fn(
-      async () => new Response("nope", { status: 429 }),
+      async (url: string, init: RequestInit) =>
+        new Response("nope", { status: 429 }),
     );
     const notifier = createTelegramNotifier(
       { botToken: "123:abc", chatId: "4242" },
