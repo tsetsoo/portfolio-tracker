@@ -62,14 +62,37 @@ read your chat id from
 `https://api.telegram.org/bot<token>/getUpdates`. Then on the Pi:
 
 ```bash
+# /opt/portfolio is root-owned, so pi cannot create a file in it: make the
+# file first (empty, pi-owned, 0600), then fill it. The install line blanks an
+# existing portfolio.env, which is fine because the tee below rewrites it.
+sudo install -o pi -g pi -m 0600 /dev/null /opt/portfolio/portfolio.env
 sudo -u pi tee /opt/portfolio/portfolio.env >/dev/null <<'EOF'
 TELEGRAM_BOT_TOKEN=123456:ABC...
 TELEGRAM_CHAT_ID=42424242
 EOF
-sudo chmod 0600 /opt/portfolio/portfolio.env
 sudo systemctl restart portfolio
 ```
+
+A Pi bootstrapped before this feature landed has no `portfolio.env` at all
+(only re-running `bootstrap.sh` writes the template), which is why the
+`install` line comes first — without it `tee` fails with `Permission denied`.
+`run-container.sh` passes the file to Docker with `--env-file` when it exists.
 
 The file lives outside `releases/`, so deploys never overwrite it. Without
 both variables the scheduler runs and reports `telegram-not-configured`
 without sending anything.
+
+#### Known limitations
+
+- **No edit action.** Changing an alert means deleting it and creating a new
+  one, which resets a percent alert's anchor to the price at re-create time.
+- **An alert's currency is frozen at create time.** Changing the portfolio base
+  currency in Settings leaves existing alerts pinned to the old currency, and
+  every pass then records `Quote currency … does not match alert currency …`
+  instead of firing. Delete and re-create them after a base-currency change.
+- **Equity alerts are limited by what Yahoo quotes in the base currency.** An
+  alert stores its currency and never converts, so creation only succeeds if
+  Yahoo returns the base currency for that ticker. Only EUR and GBP get
+  exchange-suffix candidates (`.DE`, `.L`, …); with any other non-USD base
+  currency just the bare ticker is tried, and a mismatch fails at create time
+  with the opaque message `Yahoo quote currency mismatch for AAPL: USD != CHF`.
