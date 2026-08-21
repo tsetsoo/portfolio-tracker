@@ -2,9 +2,16 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 
-import { forceRefreshPortfolio, loadDashboardData } from "@/app/actions/portfolio";
+import {
+  forceRefreshPortfolio,
+  loadDashboardData,
+} from "@/app/actions/portfolio";
 import type { DashboardPageData } from "@/lib/portfolio/page-data";
-import { HistoryChart } from "@/components/HistoryChart";
+import {
+  AllocationDonut,
+  type AllocationSlice,
+} from "@/components/AllocationDonut";
+import { HistoryCard } from "@/components/HistoryCard";
 import { HoldingsList } from "@/components/HoldingsList";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { NetWorthHeader } from "@/components/NetWorthHeader";
@@ -13,9 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Page } from "@/components/ui/PageHeader";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { StatTile } from "@/components/ui/StatTile";
 import { RefreshIcon } from "@/components/ui/icons";
-import { formatMoney } from "@/lib/format-money";
 import type { HoldingType, ValuedHolding } from "@/lib/domain/types";
 
 const SECTIONS: Array<{
@@ -146,17 +151,18 @@ export function DashboardClient() {
   const busy = isPending || isRefreshing || !data;
   const total = data?.valuation.totalBase ?? 0;
 
-  const tiles = data
+  const slices: AllocationSlice[] = data
     ? SECTIONS.map((section) => {
         const value = data.valuation.holdings
           .filter((item) => item.holding.type === section.type)
           .reduce((sum, item) => sum + item.currentValueBase, 0);
         return {
+          type: section.type,
           label: section.title,
           value,
           share: total > 0 ? value / total : 0,
         };
-      }).filter((tile) => tile.value !== 0)
+      }).filter((slice) => slice.value !== 0)
     : [];
 
   return (
@@ -203,30 +209,26 @@ export function DashboardClient() {
             asOf={data.valuation.asOf}
           />
 
-          {tiles.length > 1 && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {tiles.map((tile) => (
-                <StatTile
-                  key={tile.label}
-                  label={tile.label}
-                  value={formatMoney(tile.value, data.valuation.baseCurrency)}
-                  share={tile.share}
+          <div className="mt-4 grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+            {slices.length > 1 && (
+              <Card>
+                <SectionHeading
+                  eyebrow="Composition"
+                  title="Allocation"
+                  meta={`${slices.length} classes`}
                 />
-              ))}
-            </div>
-          )}
-
-          <Card className="mt-4">
-            <SectionHeading
-              eyebrow="Daily close"
-              title="Portfolio history"
-              meta={`${data.snapshots.length} snapshots`}
-            />
-            <HistoryChart
+                <AllocationDonut
+                  slices={slices}
+                  total={data.valuation.totalBase}
+                  currency={data.valuation.baseCurrency}
+                />
+              </Card>
+            )}
+            <HistoryCard
               snapshots={data.snapshots}
               currency={data.valuation.baseCurrency}
             />
-          </Card>
+          </div>
 
           {SECTIONS.map((section) => (
             <HoldingsSection

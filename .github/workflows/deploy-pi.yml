@@ -2,7 +2,9 @@ name: Deploy Pi
 
 on:
   push:
-    branches: [main, feature/portfolio-tracker]
+    # main only: feature/portfolio-tracker is stale, and a push there would
+    # have built and deployed straight to the Pi.
+    branches: [main]
     # The armv7 build takes ~20 min under QEMU and restarts the Pi, so don't
     # spend it on commits that cannot change the artifact. A commit touching
     # both docs and code still builds — paths-ignore only skips when every

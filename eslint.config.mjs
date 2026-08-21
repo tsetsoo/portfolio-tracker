@@ -13,7 +13,16 @@ const compat = new FlatCompat({
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
-    ignores: [".next/**", "out/**", "build/**", "next-env.d.ts"],
+    ignores: [
+      ".next/**",
+      "out/**",
+      "build/**",
+      "next-env.d.ts",
+      // Sibling git worktrees live here. Each has its own generated
+      // next-env.d.ts, and linting them from the root reports errors that
+      // belong to another branch's workspace.
+      ".claude/worktrees/**",
+    ],
   },
 ];
 
