@@ -13,15 +13,21 @@ import {
 
 type Snapshot = { date: string; totalBase: number };
 
-function windowFrom(snapshots: Snapshot[], range: RangeKey): Snapshot[] {
+export function windowFrom(snapshots: Snapshot[], range: RangeKey): Snapshot[] {
   if (range === "ALL" || snapshots.length === 0) return snapshots;
   // Anchor to the newest snapshot, not to now: a stale series should still show
   // its own tail rather than collapsing to empty.
   const newest = snapshots[snapshots.length - 1].date;
   const cutoff = new Date(`${newest}T00:00:00`);
   cutoff.setDate(cutoff.getDate() - RANGE_DAYS[range]);
-  const iso = cutoff.toISOString().slice(0, 10);
-  return snapshots.filter((s) => s.date >= iso);
+  // Format from local parts, not toISOString(): the date is parsed as local
+  // midnight, so converting to UTC shifts it a day in any UTC+ zone and the
+  // window silently comes out one day too wide.
+  const y = cutoff.getFullYear();
+  const m = String(cutoff.getMonth() + 1).padStart(2, "0");
+  const d = String(cutoff.getDate()).padStart(2, "0");
+  const from = `${y}-${m}-${d}`;
+  return snapshots.filter((s) => s.date >= from);
 }
 
 export function HistoryCard({
