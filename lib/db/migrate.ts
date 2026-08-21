@@ -140,6 +140,38 @@ export function migrate(db: Database.Database): void {
       UNIQUE (wallet_id, address)
     );
 
+    CREATE TABLE IF NOT EXISTS price_alerts (
+      id TEXT PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      asset_class TEXT NOT NULL CHECK (asset_class IN ('equity','crypto')),
+      kind TEXT NOT NULL CHECK (kind IN ('threshold','percent_move')),
+      direction TEXT NOT NULL,
+      target_price REAL,
+      percent REAL,
+      anchor_price REAL,
+      anchor_at TEXT,
+      currency TEXT NOT NULL,
+      label TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      cooldown_minutes INTEGER NOT NULL DEFAULT 1440,
+      last_fired_at TEXT,
+      last_checked_at TEXT,
+      last_price REAL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      CHECK (
+        (kind = 'threshold'
+          AND direction IN ('above','below')
+          AND target_price IS NOT NULL
+          AND percent IS NULL)
+        OR (kind = 'percent_move'
+          AND direction IN ('up','down','either')
+          AND percent IS NOT NULL AND percent > 0
+          AND anchor_price IS NOT NULL
+          AND target_price IS NULL)
+      )
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS wallet_addresses_address_uidx
       ON wallet_addresses(address);
   `);
