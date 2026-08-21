@@ -16,10 +16,13 @@ function fresh(price: number, currency = "EUR"): Quote {
 /** Quote service backed by a fixed map; records how it was called. */
 function fakeQuotes(prices: Record<string, Quote>) {
   const cryptoCalls: string[][] = [];
-  const equityCalls: string[] = [];
+  const equityCalls: { symbol: string; preferredCurrency?: string }[] = [];
   const service: QuoteService = {
-    async getQuote(symbol) {
-      equityCalls.push(symbol);
+    async getQuote(symbol, _assetClass, opts) {
+      equityCalls.push({
+        symbol,
+        preferredCurrency: opts?.preferredCurrency,
+      });
       const quote = prices[symbol];
       if (!quote) throw new Error(`no quote for ${symbol}`);
       return quote;
@@ -197,23 +200,79 @@ describe("runAlerts", () => {
       anchorPrice: 180,
       currency: "EUR",
     });
+    createAlert(db, {
+      symbol: "MSFT",
+      assetClass: "equity",
+      kind: "threshold",
+      direction: "below",
+      targetPrice: 400,
+      anchorPrice: 420,
+      currency: "USD",
+    });
     const disabled = thresholdAlert("BTC", 1);
     setAlertEnabled(db, disabled.id, false);
 
     const { service, equityCalls, cryptoCalls } = fakeQuotes({
       AAPL: fresh(140),
+      MSFT: fresh(300, "USD"),
       BTC: fresh(105_240),
     });
     const notifier = fakeNotifier();
 
     const result = await runAlerts({ db, quotes: service, notifier, now: NOW });
 
-    // The disabled BTC alert is never priced and never sends.
-    expect(equityCalls).toEqual(["AAPL"]);
+    // The disabled BTC alert is never priced and never sends, and each equity
+    // is priced in the currency stored on its own alert.
+    expect(equityCalls).toEqual([
+      { symbol: "AAPL", preferredCurrency: "EUR" },
+      { symbol: "MSFT", preferredCurrency: "USD" },
+    ]);
     expect(cryptoCalls).toEqual([]);
-    expect(result.checked).toBe(1);
-    expect(result.fired).toBe(1);
-    expect(notifier.sent).toHaveLength(1);
+    expect(result.checked).toBe(2);
+    expect(result.fired).toBe(2);
+    expect(notifier.sent).toHaveLength(2);
     expect(getAlert(db, disabled.id)?.lastCheckedAt).toBeNull();
+  });
+
+  it("persists the new anchor from the decision when a percent alert fires", async () => {
+    const alert = createAlert(db, {
+      symbol: "ETH",
+      assetClass: "crypto",
+      kind: "percent_move",
+      direction: "either",
+      percent: 0.05,
+      anchorPrice: 3_000,
+      currency: "EUR",
+    });
+    const { service } = fakeQuotes({ ETH: fresh(3_300) });
+    const notifier = fakeNotifier();
+
+    const result = await runAlerts({ db, quotes: service, notifier, now: NOW });
+
+    expect(result).toEqual({ checked: 1, fired: 1, errors: 0 });
+    // The seam: evaluate returns nextAnchorPrice, run.ts hands it to recordFire.
+    const after = getAlert(db, alert.id);
+    expect(after?.anchorPrice).toBe(3_300);
+    expect(after?.anchorAt).toBe(NOW.toISOString());
+
+    // Proof the re-anchor took effect: the same price is no longer a 5% move
+    // (well past the cooldown, so only the anchor can hold it back).
+    const later = new Date(NOW.getTime() + 10 * 24 * 60 * 60_000);
+    const second = await runAlerts({
+      db,
+      quotes: service,
+      notifier,
+      now: later,
+    });
+    expect(second).toEqual({ checked: 1, fired: 0, errors: 0 });
+  });
+
+  it("leaves a threshold alert's anchor alone when it fires", async () => {
+    const alert = thresholdAlert("BTC", 100_000);
+    const { service } = fakeQuotes({ BTC: fresh(105_240) });
+
+    await runAlerts({ db, quotes: service, notifier: fakeNotifier(), now: NOW });
+
+    expect(getAlert(db, alert.id)?.anchorPrice).toBe(90_000);
   });
 });
