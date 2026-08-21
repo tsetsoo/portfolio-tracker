@@ -53,8 +53,22 @@ export function AlertsManager({
   const [kind, setKind] = useState<CreateAlertInput["kind"]>("threshold");
   const now = Date.now();
 
+  function run(action: () => Promise<string | void>) {
+    startTransition(async () => {
+      try {
+        const okMessage = await action();
+        if (okMessage) setMessage(okMessage);
+      } catch (error) {
+        setMessage(
+          error instanceof Error ? error.message : "Something went wrong.",
+        );
+      }
+    });
+  }
+
   function submit(formData: FormData) {
     const chosenKind = formData.get("kind") as CreateAlertInput["kind"];
+    const cooldownRaw = String(formData.get("cooldownMinutes") ?? "").trim();
     const input: CreateAlertInput = {
       symbol: String(formData.get("symbol") ?? ""),
       assetClass: formData.get("assetClass") === "equity" ? "equity" : "crypto",
@@ -62,7 +76,7 @@ export function AlertsManager({
       direction: String(
         formData.get("direction") ?? "above",
       ) as CreateAlertInput["direction"],
-      cooldownMinutes: Number(formData.get("cooldownMinutes") ?? 1440),
+      cooldownMinutes: cooldownRaw === "" ? 1440 : Number(cooldownRaw),
       label: String(formData.get("label") ?? "") || undefined,
     };
     if (chosenKind === "threshold") {
@@ -161,7 +175,13 @@ export function AlertsManager({
             )}
             <label className="grid gap-1.5">
               <span className="eyebrow">Cooldown (minutes)</span>
-              <input name="cooldownMinutes" type="number" min="1" defaultValue={1440} />
+              <input
+                name="cooldownMinutes"
+                type="number"
+                min="1"
+                defaultValue={1440}
+                required
+              />
             </label>
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="eyebrow">Label (optional)</span>
@@ -251,7 +271,7 @@ export function AlertsManager({
                     <Button
                       disabled={isPending}
                       onClick={() =>
-                        startTransition(async () => {
+                        run(async () => {
                           await toggleAlertAction(alert.id, !alert.enabled);
                         })
                       }
@@ -262,7 +282,7 @@ export function AlertsManager({
                       variant="danger"
                       disabled={isPending}
                       onClick={() =>
-                        startTransition(async () => {
+                        run(async () => {
                           await deleteAlertAction(alert.id);
                         })
                       }

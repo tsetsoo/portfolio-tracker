@@ -43,7 +43,7 @@ describe("AlertsManager", () => {
 
     expect(html).toContain("Add an alert");
     expect(html).toContain("BTC");
-    expect(html).toContain("above");
+    expect(html).toContain("above €100,000.00");
     expect(html).toContain("€100,000.00");
     expect(html).toContain("€97,100.00");
     expect(html).toContain("Check now");
@@ -92,5 +92,27 @@ describe("AlertsManager", () => {
       <AlertsManager alerts={[]} telegramConfigured />,
     );
     expect(html).toContain("No alerts yet");
+  });
+
+  it("shows a cooldown message for an alert still inside its cooldown window", () => {
+    const recentFire = new Date(Date.now() - 5 * 60_000).toISOString();
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ lastFiredAt: recentFire, cooldownMinutes: 1440 })]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain("Cooling down until");
+  });
+
+  it("shows Armed once an alert's cooldown has elapsed", () => {
+    const oldFire = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[alert({ lastFiredAt: oldFire, cooldownMinutes: 1440 })]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain("Armed");
   });
 });
