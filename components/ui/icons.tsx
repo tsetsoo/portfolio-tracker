@@ -59,6 +59,15 @@ export function SettingsIcon() {
   );
 }
 
+export function BellIcon() {
+  return (
+    <svg {...props}>
+      <path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 13 6 9Z" />
+      <path d="M10 18a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
 export function RefreshIcon() {
   return (
     <svg {...props} width={13} height={13}>

@@ -26,6 +26,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+import { AppShell } from "@/components/AppShell";
 import { SidebarNav } from "@/components/SidebarNav";
 
 describe("SidebarNav", () => {
@@ -44,5 +45,20 @@ describe("SidebarNav", () => {
 
     expect(html).toContain('href="/holdings" aria-current="page"');
     expect(html).not.toContain('href="/" aria-current="page"');
+  });
+});
+
+describe("AppShell navigation", () => {
+  it("links to the alerts page in both navs", () => {
+    const html = renderToStaticMarkup(
+      <AppShell>
+        <p>content</p>
+      </AppShell>,
+    );
+
+    expect(html).toContain('href="/alerts"');
+    expect(html.match(/href="\/alerts"/g)).toHaveLength(2);
+    expect(html).toContain("Alerts");
+    expect(html).toContain("grid-cols-6");
   });
 });
