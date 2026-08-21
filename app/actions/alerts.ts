@@ -41,15 +41,8 @@ export async function createAlertAction(
   input: CreateAlertInput,
 ): Promise<ActionResult> {
   try {
-    const db = getDb();
-    const { baseCurrency } = getSettings(db);
-    const resolved = await resolveAlertSymbol(
-      input.symbol,
-      input.assetClass,
-      baseCurrency,
-      createQuoteService(db, globalThis.fetch),
-    );
-
+    // Cheap checks first: a typo'd form must not burn a rate-limited
+    // CoinGecko/Yahoo call inside resolveAlertSymbol.
     if (input.kind === "threshold") {
       if (input.targetPrice == null || !Number.isFinite(input.targetPrice)) {
         return { ok: false, error: "A target price is required" };
@@ -64,6 +57,39 @@ export async function createAlertAction(
       if (input.percentWhole <= 0) {
         return { ok: false, error: "Percentage must be above zero" };
       }
+    }
+
+    // A zero or negative cooldown makes inCooldown() always false, so a
+    // crossed alert would fire on every pass forever. The form blocks it, but
+    // this action is the trust boundary.
+    if (input.cooldownMinutes != null) {
+      if (
+        !Number.isInteger(input.cooldownMinutes) ||
+        input.cooldownMinutes < 1
+      ) {
+        return {
+          ok: false,
+          error: "Cooldown must be a whole number of minutes, at least 1",
+        };
+      }
+    }
+
+    const db = getDb();
+    const { baseCurrency } = getSettings(db);
+    const resolved = await resolveAlertSymbol(
+      input.symbol,
+      input.assetClass,
+      baseCurrency,
+      createQuoteService(db, globalThis.fetch),
+    );
+
+    // A zero anchor satisfies the anchor_price IS NOT NULL check but strands a
+    // percent alert on "missing-anchor" forever.
+    if (!Number.isFinite(resolved.price) || resolved.price <= 0) {
+      return {
+        ok: false,
+        error: `Could not get a usable price for ${resolved.symbol}`,
+      };
     }
 
     createAlert(db, {

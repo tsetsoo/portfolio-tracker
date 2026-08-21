@@ -153,7 +153,13 @@ export function migrate(db: Database.Database): void {
       currency TEXT NOT NULL,
       label TEXT,
       enabled INTEGER NOT NULL DEFAULT 1,
-      cooldown_minutes INTEGER NOT NULL DEFAULT 1440,
+      -- Defence in depth for fresh databases only: this table is created with
+      -- CREATE TABLE IF NOT EXISTS, so an already-provisioned DB keeps its
+      -- constraint-free column. createAlertAction validates the same rule, and
+      -- that is what protects existing databases; retrofitting the CHECK would
+      -- need a table rebuild, which is deliberately not done here.
+      cooldown_minutes INTEGER NOT NULL DEFAULT 1440
+        CHECK (cooldown_minutes > 0),
       last_fired_at TEXT,
       last_checked_at TEXT,
       last_price REAL,
