@@ -61,12 +61,18 @@ export function formatAlertMessage(alert: PriceAlert, price: number): string {
         `was ${formatMoney(alert.anchorPrice, alert.currency)} when you set this`,
       );
     }
-  } else if (alert.anchorPrice != null && alert.anchorPrice !== 0) {
-    const move = (price - alert.anchorPrice) / alert.anchorPrice;
-    lines.push(
-      `🔔 ${alert.symbol} ${now} — ${formatPercent(move)} from ` +
-        `${formatMoney(alert.anchorPrice, alert.currency)}`,
-    );
+  } else if (alert.kind === "percent_move") {
+    if (alert.anchorPrice != null && alert.anchorPrice !== 0) {
+      const move = (price - alert.anchorPrice) / alert.anchorPrice;
+      lines.push(
+        `🔔 ${alert.symbol} ${now} — ${formatPercent(move)} from ` +
+          `${formatMoney(alert.anchorPrice, alert.currency)}`,
+      );
+    } else {
+      lines.push(
+        `🔔 ${alert.symbol} ${now} — baseline unavailable`,
+      );
+    }
   } else {
     lines.push(`🔔 ${alert.symbol} ${now}`);
   }

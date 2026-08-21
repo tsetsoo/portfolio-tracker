@@ -116,4 +116,52 @@ describe("formatAlertMessage", () => {
       "take profit",
     );
   });
+
+  it("shows a degraded message when percent_move has no baseline", () => {
+    const text = formatAlertMessage(
+      alert({
+        kind: "percent_move",
+        direction: "either",
+        targetPrice: null,
+        percent: 0.05,
+        anchorPrice: null,
+      }),
+      94_000,
+    );
+    expect(text).toContain("BTC");
+    expect(text).toContain("€94,000.00");
+    expect(text).toContain("baseline unavailable");
+    expect(text).not.toContain("crossed");
+  });
+
+  it("describes a threshold in the down direction", () => {
+    const text = formatAlertMessage(
+      alert({
+        direction: "below",
+        targetPrice: 50_000,
+      }),
+      45_000,
+    );
+    expect(text).toContain("BTC");
+    expect(text).toContain("crossed below");
+    expect(text).toContain("€50,000.00");
+    expect(text).toContain("€45,000.00");
+  });
+
+  it("includes label in a percent_move alert", () => {
+    const text = formatAlertMessage(
+      alert({
+        kind: "percent_move",
+        direction: "either",
+        targetPrice: null,
+        percent: 0.05,
+        anchorPrice: 100_000,
+        label: "rebalance",
+      }),
+      110_000,
+    );
+    expect(text).toContain("+10.00%");
+    expect(text).toContain("€100,000.00");
+    expect(text).toContain("rebalance");
+  });
 });
