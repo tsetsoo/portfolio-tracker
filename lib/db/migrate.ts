@@ -180,6 +180,16 @@ export function migrate(db: Database.Database): void {
 
     CREATE UNIQUE INDEX IF NOT EXISTS wallet_addresses_address_uidx
       ON wallet_addresses(address);
+
+    -- Single-row lease lock so the several database connections that Next's
+    -- webpack layers create in one process (see lib/db/client.ts) can still
+    -- agree on whether an alert pass is already running. See
+    -- lib/alerts/pass-lock.ts.
+    CREATE TABLE IF NOT EXISTS alert_pass_lock (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      locked_until TEXT
+    );
+    INSERT OR IGNORE INTO alert_pass_lock (id, locked_until) VALUES (1, NULL);
   `);
 
   // Existing DBs created before import_batch_id: add the column safely.

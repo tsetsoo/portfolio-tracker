@@ -14,8 +14,19 @@ import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { FIELD_CONTROL } from "@/components/ui/Field";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import type { RunAlertsResult } from "@/lib/alerts/run";
 import type { PriceAlert } from "@/lib/alerts/types";
 import { formatMoney } from "@/lib/format-money";
+
+function describeRunResult(result: RunAlertsResult): string {
+  if (result.skipped === "telegram-not-configured") {
+    return "Skipped: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID first.";
+  }
+  if (result.skipped === "already-running") {
+    return "Skipped: a check is already in progress, try again shortly.";
+  }
+  return `Checked ${result.checked}, fired ${result.fired}, errors ${result.errors}.`;
+}
 
 function describeCondition(alert: PriceAlert): string {
   if (alert.kind === "threshold" && alert.targetPrice != null) {
@@ -202,11 +213,7 @@ export function AlertsManager({
               onClick={() =>
                 startTransition(async () => {
                   const result = await runAlertsNowAction();
-                  setMessage(
-                    result.skipped
-                      ? `Skipped: ${result.skipped}`
-                      : `Checked ${result.checked}, fired ${result.fired}, errors ${result.errors}.`,
-                  );
+                  setMessage(describeRunResult(result));
                 })
               }
             >

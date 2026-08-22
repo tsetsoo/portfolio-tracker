@@ -3,6 +3,7 @@ import "server-only";
 import type Database from "better-sqlite3";
 
 import { evaluateAlert } from "@/lib/alerts/evaluate";
+import { acquirePassLock, releasePassLock } from "@/lib/alerts/pass-lock";
 import { listArmedAlerts, recordCheck, recordFire } from "@/lib/alerts/repo";
 import {
   createTelegramNotifier,
@@ -19,7 +20,7 @@ export interface RunAlertsResult {
   checked: number;
   fired: number;
   errors: number;
-  skipped?: "telegram-not-configured";
+  skipped?: "telegram-not-configured" | "already-running";
 }
 
 function errorMessage(error: unknown): string {
@@ -151,40 +152,44 @@ export async function runAlerts(opts: {
   return { checked: alerts.length, fired, errors };
 }
 
-let inFlightPass: Promise<RunAlertsResult> | null = null;
-
 /**
- * Serialises the three wired entry points — the scheduler tick, the "Check
- * now" server action and POST /api/alerts/run. `lastFiredAt` is only written
- * after the Telegram send succeeds, so two overlapping passes would both see
- * the same unfired alert and both send it. A second caller joins the pass
- * already running and gets its real result rather than a no-op zero.
+ * Wired to the real database, quote service, and env-configured bot.
  *
- * Exported for tests; `runAlerts(opts)` stays unguarded so tests can drive
- * passes independently.
+ * Guards against overlapping passes with a lease lock stored in SQLite
+ * (lib/alerts/pass-lock.ts), not an in-process flag. The three entry points
+ * that call this — the scheduler tick, the "Check now" server action, and
+ * POST /api/alerts/run — are not guaranteed to share this module's JS state:
+ * Next compiles instrumentation.ts, route handlers, and server actions into
+ * separate webpack layers, so this file (and the `getDb()` singleton it
+ * calls) is instantiated once per layer, each with its own module scope. A
+ * `let inFlightPass` promise here would only serialise callers that happen
+ * to land in the same layer; the other layers would see their own
+ * `inFlightPass === null` and start a second pass regardless.
+ * `lastFiredAt` is only written after the Telegram send succeeds, so an
+ * unnoticed overlapping pass sends the same alert twice. The one thing every
+ * layer's copy of this module genuinely shares is the database file, so the
+ * lock lives there. A second caller cannot join the pass already running
+ * across module instances, so it gets an honest `skipped: "already-running"`
+ * rather than a fabricated result.
  */
-export function runAlertsExclusive(
-  pass: () => Promise<RunAlertsResult>,
-): Promise<RunAlertsResult> {
-  if (inFlightPass) return inFlightPass;
-  const started = pass().finally(() => {
-    if (inFlightPass === started) inFlightPass = null;
-  });
-  inFlightPass = started;
-  return started;
-}
+export async function runAlertsNow(): Promise<RunAlertsResult> {
+  const db = getDb();
+  const now = new Date();
 
-/** Wired to the real database, quote service, and env-configured bot. */
-export function runAlertsNow(): Promise<RunAlertsResult> {
-  return runAlertsExclusive(async () => {
-    const db = getDb();
+  if (!acquirePassLock(db, now)) {
+    return { checked: 0, fired: 0, errors: 0, skipped: "already-running" };
+  }
+
+  try {
     const config = telegramConfigFromEnv();
-    return runAlerts({
+    return await runAlerts({
       db,
       quotes: createQuoteService(db, globalThis.fetch),
       notifier: config
         ? createTelegramNotifier(config, globalThis.fetch)
         : null,
     });
-  });
+  } finally {
+    releasePassLock(db);
+  }
 }
