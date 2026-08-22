@@ -6,13 +6,18 @@ import type { AssetClass, QuoteService } from "@/lib/quotes/types";
  * price that becomes the alert's anchor. Crypto is limited to the
  * COINGECKO_IDS map, so an unmapped symbol is rejected here rather than
  * becoming an alert that can never fire.
+ *
+ * `force: true` above only proves the provider was *asked* right now; on a
+ * provider failure the quote service still returns a cached row with
+ * `stale: true`. That flag is passed through so the caller can refuse to
+ * anchor an alert on a price that was not actually refreshed.
  */
 export async function resolveAlertSymbol(
   rawSymbol: string,
   assetClass: AssetClass,
   baseCurrency: string,
   quotes: QuoteService,
-): Promise<{ symbol: string; price: number; currency: string }> {
+): Promise<{ symbol: string; price: number; currency: string; stale: boolean }> {
   const symbol = rawSymbol.trim().toUpperCase();
   if (symbol === "") {
     throw new Error("Symbol is required");
@@ -34,6 +39,7 @@ export async function resolveAlertSymbol(
       symbol,
       price: quote.price,
       currency: quote.currency.trim().toUpperCase(),
+      stale: quote.stale,
     };
   }
 
@@ -45,5 +51,6 @@ export async function resolveAlertSymbol(
     symbol,
     price: quote.price,
     currency: quote.currency.trim().toUpperCase(),
+    stale: quote.stale,
   };
 }

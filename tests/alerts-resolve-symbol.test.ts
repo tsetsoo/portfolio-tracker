@@ -43,6 +43,7 @@ describe("resolveAlertSymbol", () => {
       symbol: "BTC",
       price: 96_400,
       currency: "EUR",
+      stale: false,
     });
   });
 
@@ -65,12 +66,40 @@ describe("resolveAlertSymbol", () => {
       "EUR",
       quotes({ AAPL: fresh(180, "USD") }),
     );
-    expect(resolved).toEqual({ symbol: "AAPL", price: 180, currency: "USD" });
+    expect(resolved).toEqual({
+      symbol: "AAPL",
+      price: 180,
+      currency: "USD",
+      stale: false,
+    });
   });
 
   it("surfaces the provider error for an unknown ticker", async () => {
     await expect(
       resolveAlertSymbol("NOPE", "equity", "EUR", quotes({})),
     ).rejects.toThrow(/404/);
+  });
+
+  it("passes through a stale crypto quote instead of hiding it", async () => {
+    // force: true only proves the provider was asked; on a provider failure
+    // the quote service still returns a cached row with stale: true. The
+    // caller (createAlertAction) needs that flag to refuse anchoring on it.
+    const resolved = await resolveAlertSymbol(
+      "btc",
+      "crypto",
+      "EUR",
+      quotes({ BTC: { ...fresh(96_400), stale: true } }),
+    );
+    expect(resolved.stale).toBe(true);
+  });
+
+  it("passes through a stale equity quote instead of hiding it", async () => {
+    const resolved = await resolveAlertSymbol(
+      "aapl",
+      "equity",
+      "EUR",
+      quotes({ AAPL: { ...fresh(180, "USD"), stale: true } }),
+    );
+    expect(resolved.stale).toBe(true);
   });
 });

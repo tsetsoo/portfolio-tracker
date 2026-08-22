@@ -92,6 +92,16 @@ export async function createAlertAction(
       };
     }
 
+    // force: true only proves the provider was asked; on a provider failure
+    // the quote service still returns a cached (possibly stale) row. Anchor
+    // on that and the very next pass can fire on a move that never happened.
+    if (resolved.stale) {
+      return {
+        ok: false,
+        error: `The price for ${resolved.symbol} could not be refreshed right now. Try again shortly.`,
+      };
+    }
+
     createAlert(db, {
       symbol: resolved.symbol,
       assetClass: input.assetClass,
