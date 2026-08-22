@@ -199,6 +199,33 @@ describe("runAlerts", () => {
     expect(getAlert(db, alert.id)?.lastError).toContain("stale");
   });
 
+  it("records an error instead of evaluating a non-positive quote price", async () => {
+    // A percent alert would otherwise compute this as a -100% move, fire,
+    // and re-anchor to the same non-positive price — stranding it on
+    // "missing-anchor" forever (repo.ts's recordFire guard is the second
+    // line of defence; this is the first, at the source).
+    const alert = createAlert(db, {
+      symbol: "ETH",
+      assetClass: "crypto",
+      kind: "percent_move",
+      direction: "either",
+      percent: 0.05,
+      anchorPrice: 3_000,
+      currency: "EUR",
+    });
+    const { service } = fakeQuotes({ ETH: fresh(0) });
+    const notifier = fakeNotifier();
+
+    const result = await runAlerts({ db, quotes: service, notifier, now: NOW });
+
+    expect(result).toEqual({ checked: 1, fired: 0, errors: 1 });
+    expect(notifier.sent).toEqual([]);
+    const after = getAlert(db, alert.id);
+    expect(after?.lastError).toContain("Invalid price");
+    expect(after?.anchorPrice).toBe(3_000);
+    expect(after?.lastFiredAt).toBeNull();
+  });
+
   it("ignores disabled alerts and prices equities per alert currency", async () => {
     createAlert(db, {
       symbol: "AAPL",

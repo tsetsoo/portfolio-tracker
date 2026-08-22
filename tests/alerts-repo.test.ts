@@ -200,6 +200,45 @@ describe("alerts repository", () => {
     expect(after?.anchorAt).toBe("2026-08-21T10:00:00.000Z");
   });
 
+  it("refuses to write a non-positive anchor, leaving the existing anchor in place", () => {
+    // A zero or negative anchor would satisfy the anchor_price IS NOT NULL
+    // check but strand the alert on "missing-anchor" forever, with no edit
+    // action to recover it. run.ts already refuses to evaluate a
+    // non-positive quote price before this point; this is defence in depth.
+    const alert = createAlert(db, {
+      symbol: "ETH",
+      assetClass: "crypto",
+      kind: "percent_move",
+      direction: "either",
+      percent: 0.05,
+      anchorPrice: 3_000,
+      currency: "EUR",
+    });
+
+    recordFire(db, alert.id, {
+      firedAt: "2026-08-21T10:00:00.000Z",
+      price: 0,
+      newAnchorPrice: 0,
+    });
+
+    const afterZero = getAlert(db, alert.id);
+    expect(afterZero?.anchorPrice).toBe(3_000);
+    expect(afterZero?.anchorAt).toBe(alert.createdAt);
+    // The fire itself (last_fired_at/last_price) still recorded — only the
+    // anchor write is guarded.
+    expect(afterZero?.lastFiredAt).toBe("2026-08-21T10:00:00.000Z");
+
+    recordFire(db, alert.id, {
+      firedAt: "2026-08-21T11:00:00.000Z",
+      price: -5,
+      newAnchorPrice: -5,
+    });
+
+    const afterNegative = getAlert(db, alert.id);
+    expect(afterNegative?.anchorPrice).toBe(3_000);
+    expect(afterNegative?.anchorAt).toBe(alert.createdAt);
+  });
+
   it("leaves a threshold anchor untouched on fire", () => {
     const alert = createAlert(db, {
       symbol: "BTC",

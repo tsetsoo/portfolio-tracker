@@ -155,12 +155,25 @@ export function recordCheck(
   ).run(check.checkedAt, check.price, check.error, id);
 }
 
-/** newAnchorPrice re-anchors a percent alert; null leaves the anchor alone. */
+/**
+ * newAnchorPrice re-anchors a percent alert; null leaves the anchor alone.
+ * A non-positive value is never a usable anchor — it would satisfy the
+ * anchor_price IS NOT NULL check but strand the alert on "missing-anchor"
+ * forever with no edit action to recover it — so it is treated the same as
+ * null: the existing anchor is left in place. Defence in depth: run.ts
+ * already refuses to evaluate a non-positive quote price before it gets
+ * this far.
+ */
 export function recordFire(
   db: Database.Database,
   id: string,
   fire: { firedAt: string; price: number; newAnchorPrice: number | null },
 ): void {
+  const newAnchorPrice =
+    fire.newAnchorPrice != null && fire.newAnchorPrice > 0
+      ? fire.newAnchorPrice
+      : null;
+
   db.prepare(
     `UPDATE price_alerts
         SET last_fired_at = ?,
@@ -174,8 +187,8 @@ export function recordFire(
     fire.firedAt,
     fire.firedAt,
     fire.price,
-    fire.newAnchorPrice,
-    fire.newAnchorPrice === null ? null : fire.firedAt,
+    newAnchorPrice,
+    newAnchorPrice === null ? null : fire.firedAt,
     id,
   );
 }

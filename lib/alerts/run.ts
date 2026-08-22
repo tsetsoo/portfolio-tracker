@@ -115,6 +115,20 @@ export async function runAlerts(opts: {
       continue;
     }
 
+    // A non-positive price is never real: evaluating it would compute a
+    // percent alert's move as -100% and, on fire, re-anchor to that same
+    // non-positive price, stranding it on "missing-anchor" forever. Treat it
+    // as a failed check instead, the same as a missing quote.
+    if (!Number.isFinite(quote.price) || quote.price <= 0) {
+      errors += 1;
+      recordCheck(opts.db, alert.id, {
+        checkedAt,
+        price: null,
+        error: `Invalid price for ${alert.symbol}: ${quote.price}`,
+      });
+      continue;
+    }
+
     const decision = evaluateAlert(alert, quote, now);
 
     if (!decision.fires) {
