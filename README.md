@@ -57,8 +57,10 @@ Then open `http://raspberrypi:8081` or `http://100.118.255.23:8081` on the tailn
 ### Price alerts
 
 Alerts are evaluated in-process every 10 minutes and delivered by a Telegram
-bot. Create one with [@BotFather](https://t.me/botfather), message it once, and
-read your chat id from
+bot. Override the interval with `ALERTS_INTERVAL_MS`; a value below 60000, or
+a non-numeric one, falls back to the 600000 default rather than being clamped
+up to it. Create one with [@BotFather](https://t.me/botfather), message it
+once, and read your chat id from
 `https://api.telegram.org/bot<token>/getUpdates`. Then on the Pi:
 
 ```bash
