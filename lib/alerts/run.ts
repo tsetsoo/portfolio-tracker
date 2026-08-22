@@ -194,7 +194,8 @@ export async function runAlertsNow(): Promise<RunAlertsResult> {
   const db = getDb();
   const now = new Date();
 
-  if (!acquirePassLock(db, now)) {
+  const token = acquirePassLock(db, now);
+  if (!token) {
     return { checked: 0, fired: 0, errors: 0, skipped: "already-running" };
   }
 
@@ -208,6 +209,9 @@ export async function runAlertsNow(): Promise<RunAlertsResult> {
         : null,
     });
   } finally {
-    releasePassLock(db);
+    // Pass the token so a pass that outlived its own lease releases only
+    // the lease it claimed, not one a later pass has since claimed. See
+    // releasePassLock's doc comment in lib/alerts/pass-lock.ts.
+    releasePassLock(db, token);
   }
 }

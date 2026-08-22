@@ -405,6 +405,6 @@ describe("runAlertsNow", () => {
     // The lock must be free again so the next tick is not wedged behind a
     // pass that already finished.
     const freedAgain = acquirePassLock(db, new Date(NOW.getTime() + 1));
-    expect(freedAgain).toBe(true);
+    expect(freedAgain).not.toBeNull();
   });
 });
