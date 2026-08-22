@@ -226,6 +226,44 @@ describe("runAlerts", () => {
     expect(after?.lastFiredAt).toBeNull();
   });
 
+  it("does not overwrite last_price with a mismatched-currency quote", async () => {
+    // The quote's currency does not match the alert's frozen currency:
+    // evaluateAlert already knows the number is not trustworthy in the
+    // alert's currency, so it must not be displayed as if it were.
+    const alert = createAlert(db, {
+      symbol: "AAPL",
+      assetClass: "equity",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 500,
+      anchorPrice: 150,
+      currency: "EUR",
+    });
+    // Seed a known-good previous price the mismatch pass must not clobber.
+    const { service: firstService } = fakeQuotes({ AAPL: fresh(160, "EUR") });
+    await runAlerts({
+      db,
+      quotes: firstService,
+      notifier: fakeNotifier(),
+      now: NOW,
+    });
+    expect(getAlert(db, alert.id)?.lastPrice).toBe(160);
+
+    const { service } = fakeQuotes({ AAPL: fresh(300, "USD") });
+    const notifier = fakeNotifier();
+    const later = new Date(NOW.getTime() + 60_000);
+
+    const result = await runAlerts({ db, quotes: service, notifier, now: later });
+
+    expect(result).toEqual({ checked: 1, fired: 0, errors: 1 });
+    expect(notifier.sent).toEqual([]);
+    const after = getAlert(db, alert.id);
+    expect(after?.lastError).toContain("currency");
+    // The previous known-good price survives; the USD 300 quote is never
+    // written under the alert's EUR currency.
+    expect(after?.lastPrice).toBe(160);
+  });
+
   it("ignores disabled alerts and prices equities per alert currency", async () => {
     createAlert(db, {
       symbol: "AAPL",

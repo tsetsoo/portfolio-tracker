@@ -135,7 +135,11 @@ export async function runAlerts(opts: {
       if (decision.detail) errors += 1;
       recordCheck(opts.db, alert.id, {
         checkedAt,
-        price: quote.price,
+        // A currency-mismatch quote is in the wrong currency for this
+        // alert: writing it to last_price would render as if it were the
+        // alert's own currency. Leave the previous known-good price alone
+        // (recordCheck COALESCEs a null price).
+        price: decision.code === "currency-mismatch" ? null : quote.price,
         error: decision.detail,
       });
       continue;
