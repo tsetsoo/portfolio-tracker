@@ -35,6 +35,9 @@ OFFSITE_KEEP="${OFFSITE_KEEP:-30}"
 # has been broken for days" from this side too, rather than faithfully pushing
 # the same stale file every night and reporting success.
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-25}"
+# How long to wait for a local backup that is currently running.
+BACKUP_WAIT="${BACKUP_WAIT:-300}"
+BACKUP_UNIT="${BACKUP_UNIT:-portfolio-backup.service}"
 
 log() { echo "offsite: $*"; }
 die() { echo "offsite: $*" >&2; exit 1; }
@@ -57,9 +60,18 @@ export RCLONE_CONFIG="$RCLONE_CONFIG_FILE"
 # left alone they would bury a real error in the nightly journal, which is
 # exactly what this unit exists to make visible. Drop those lines only; keep
 # every other stderr line and rclone's exit status.
+# Filtered synchronously via a temp file rather than `2> >(grep …)`: bash does
+# not wait for process-substitution children, and every failure path here exits
+# immediately afterwards. With Type=oneshot systemd tears down the cgroup on
+# exit, so the grep could be killed before flushing — losing exactly the rclone
+# error this wrapper exists to keep readable.
 rc() {
-  "$RCLONE" --config "$RCLONE_CONFIG_FILE" "$@" \
-    2> >(grep -v 'internal error: no overview data found for' >&2)
+  local err status=0
+  err="$(mktemp)"
+  "$RCLONE" --config "$RCLONE_CONFIG_FILE" "$@" 2>"$err" || status=$?
+  grep -v 'internal error: no overview data found for' "$err" >&2 || true
+  rm -f "$err"
+  return "$status"
 }
 
 # --- refuse to run if the Pi can decrypt its own backups --------------------
@@ -70,6 +82,31 @@ if gpg --list-secret-keys "$GPG_RECIPIENT" >/dev/null 2>&1; then
 fi
 gpg --list-keys "$GPG_RECIPIENT" >/dev/null 2>&1 \
   || die "public key $GPG_RECIPIENT not in pi's keyring — import it first"
+
+# --- do not race the local backup -------------------------------------------
+# After downtime both timers fire their missed runs at once (Persistent=true),
+# and After= only orders units started in the same transaction — so this can
+# start *before* the backup it is meant to follow, find a days-old copy, and
+# fail the age guard below for no real reason. If the backup is running, wait.
+waited=0
+while :; do
+  state="$(systemctl show -p ActiveState --value "$BACKUP_UNIT" 2>/dev/null || echo unknown)"
+  case "$state" in
+    activating|active|reloading) ;;
+    *) break ;;
+  esac
+  if (( waited >= BACKUP_WAIT )); then
+    die "$BACKUP_UNIT has been $state for ${BACKUP_WAIT}s — not pushing while it may still be writing"
+  fi
+  if (( waited == 0 )); then
+    log "$BACKUP_UNIT is $state — waiting for it to finish"
+  fi
+  sleep 5
+  waited=$(( waited + 5 ))
+done
+if (( waited > 0 )); then
+  log "local backup finished after ${waited}s"
+fi
 
 # --- pick the newest verified local backup ----------------------------------
 newest="$(ls -1t "$BACKUP_DIR"/daily/*.db 2>/dev/null | head -1 || true)"
@@ -136,8 +173,16 @@ else
 fi
 
 # --- prune the far end ------------------------------------------------------
-mapfile -t remote_files < <(rc lsf "$OFFSITE_REMOTE" | grep '\.db\.gpg$' | sort || true)
+# Distinguish "the remote lists nothing" from "the listing failed". A blanket
+# `|| true` here would turn a lost list permission into kept=0, skip the prune
+# entirely, and report "(0 kept)" as success — remote retention would stop
+# forever while every run stayed green, which is the very thing the die below
+# was added to prevent.
+listing="$(rc lsf "$OFFSITE_REMOTE")" \
+  || die "could not list $OFFSITE_REMOTE — cannot enforce remote retention"
+mapfile -t remote_files < <(printf '%s\n' "$listing" | grep '\.db\.gpg$' | sort || true)
 kept=${#remote_files[@]}
+(( kept > 0 )) || die "listed $OFFSITE_REMOTE but found no .db.gpg objects, immediately after uploading $remote_name"
 if (( kept > OFFSITE_KEEP )); then
   drop=$(( kept - OFFSITE_KEEP ))
   # Names are portfolio-YYYY-MM-DD-HHMMSS.db.gpg, so lexical sort is chronological.

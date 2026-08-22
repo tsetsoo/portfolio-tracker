@@ -8,6 +8,12 @@ Written 2026-08-21. Nothing has been built yet; this is the brief.
 > it needs a storage account and an encryption key. The owner picked *encrypted
 > push to cloud* and confirmed 14 daily + 12 monthly retention.
 >
+> One correction to the text below: it says the live data directory held **13**
+> ad-hoc copies. It held **12** — eleven `portfolio.pre-*.db` plus one
+> `portfolio.db.bak-*`. All twelve are now in `backups/archive/`, and
+> `/opt/portfolio/data/` contains nothing but `portfolio.db` and `backups/`.
+> Nothing was missed.
+>
 > Live documentation is now **[docs/runbooks/offsite-backup.md](../runbooks/offsite-backup.md)** —
 > read that, not this. This file is kept as the record of why.
 

@@ -75,8 +75,10 @@ trap cleanup_staging EXIT
 
 # One node invocation, so verification reads the copy this backup just wrote and
 # live row counts are sampled either side of it: the app keeps serving during
-# the backup, so a table may legitimately grow mid-copy. A copy matching either
-# sample is consistent; one matching neither is not.
+# the backup, so a table may legitimately change mid-copy. The copy is a
+# snapshot at some instant between the two samples, so any count *between* them
+# is legitimate — only a count outside that range means we captured something
+# that was never in the database.
 "$DOCKER" exec "$CONTAINER" node -e '
 const D = require("/app/node_modules/better-sqlite3");
 const TABLES = ["holdings", "lots", "snapshots", "import_batches"];
@@ -97,9 +99,13 @@ live.backup(dest).then(() => {
   const got = counts(copy);
   copy.close();
 
-  const bad = TABLES.filter((t) => got[t] !== before[t] && got[t] !== after[t]);
+  // A range, not equality against the two endpoints: an import landing mid-copy
+  // can legitimately leave the copy holding a count between them, and rejecting
+  // that would discard a perfectly good backup and fail the unit.
+  const bad = TABLES.filter((t) =>
+    got[t] < Math.min(before[t], after[t]) || got[t] > Math.max(before[t], after[t]));
   if (bad.length) {
-    throw new Error("row counts match neither sample: " + bad
+    throw new Error("row counts outside the live range: " + bad
       .map((t) => t + " copy=" + got[t] + " live=" + before[t] + ".." + after[t]).join(", "));
   }
   if (got.holdings === 0) throw new Error("copy has zero holdings; refusing to keep it");
@@ -156,8 +162,14 @@ prune() {
   local dir="$1" keep="$2" pruned=0 old
   while read -r old; do
     [[ -n "$old" ]] || continue
-    rm -f "$old" && pruned=$(( pruned + 1 ))
-  done < <(ls -1dt "$dir"/*.db 2>/dev/null | tail -n +"$(( keep + 1 ))")
+    # Not `rm -f … && pruned++`: set -e exempts the left side of &&, so a failed
+    # delete would go unlogged and unreported while local retention quietly
+    # stopped being enforced.
+    if ! rm -f "$old"; then
+      die "failed to prune $old — local retention is not being enforced"
+    fi
+    pruned=$(( pruned + 1 ))
+  done < <(ls -1dt "$dir"/*.db 2>/dev/null | tail -n +"$(( keep + 1 ))" || true)
   if (( pruned > 0 )); then
     log "pruned $pruned from $(basename "$dir")/ (keeping $keep)"
   fi
@@ -166,6 +178,10 @@ prune() {
 prune "$BACKUP_DIR/daily" "$KEEP_DAILY"
 prune "$BACKUP_DIR/monthly" "$KEEP_MONTHLY"
 
-n_daily="$(ls -1 "$BACKUP_DIR"/daily/*.db 2>/dev/null | wc -l | tr -d ' ')"
-n_monthly="$(ls -1 "$BACKUP_DIR"/monthly/*.db 2>/dev/null | wc -l | tr -d ' ')"
+# `|| true` on both: an empty directory makes the glob fail to match, ls exits
+# non-zero, and under pipefail that would abort the unit with no message after a
+# backup that had already succeeded and been published. monthly/ is genuinely
+# empty when KEEP_MONTHLY=0.
+n_daily="$(ls -1 "$BACKUP_DIR"/daily/*.db 2>/dev/null | wc -l | tr -d ' ' || true)"
+n_monthly="$(ls -1 "$BACKUP_DIR"/monthly/*.db 2>/dev/null | wc -l | tr -d ' ' || true)"
 log "ok — $n_daily daily, $n_monthly monthly"
