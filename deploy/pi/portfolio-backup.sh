@@ -25,11 +25,17 @@ KEEP_MONTHLY="${KEEP_MONTHLY:-12}"
 # release, so the container can legitimately be mid-restart when we run.
 CONTAINER_WAIT="${CONTAINER_WAIT:-120}"
 
-# $DATA_DIR is mounted at /data inside the container.
-C_DATA="/data"
-
 log() { echo "portfolio-backup: $*"; }
 die() { echo "portfolio-backup: $*" >&2; exit 1; }
+
+# $DATA_DIR is mounted at /data inside the container. Derive the container's
+# view of $BACKUP_DIR rather than hardcoding it: with a hardcoded /data/backups
+# the *_DIR overrides would put the copy in one directory and its verification
+# and rotation in another, which fails confusingly rather than loudly.
+case "$BACKUP_DIR/" in
+  "$DATA_DIR"/*) C_BACKUP="/data/${BACKUP_DIR#"$DATA_DIR"/}" ;;
+  *) die "PORTFOLIO_BACKUP_DIR ($BACKUP_DIR) must live under PORTFOLIO_DATA_DIR ($DATA_DIR) — the container only has that mount" ;;
+esac
 
 # Local time, not UTC, deliberately. Snapshot rows are keyed by localDateString
 # (app/api/snapshot/route.ts), so a UTC stamp would name the 00:30 BST backup
@@ -57,6 +63,16 @@ done
 (( waited > 0 )) && log "container ready after ${waited}s"
 
 # --- copy + verify ----------------------------------------------------------
+# Write to a staging name and rename in only after verification passes. A copy
+# that fails verification must never be left where something else can find it:
+# every consumer here and in portfolio-backup-offsite.sh picks "newest *.db in
+# daily/", so an orphaned bad copy would both rotate good ones out and get
+# encrypted and pushed off-device with an "ok" in the journal. The leading dot
+# keeps the staging file out of those *.db globs while it is in flight.
+staging=".incoming-$name"
+cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging"; }
+trap cleanup_staging EXIT
+
 # One node invocation, so verification reads the copy this backup just wrote and
 # live row counts are sampled either side of it: the app keeps serving during
 # the backup, so a table may legitimately grow mid-copy. A copy matching either
@@ -90,10 +106,14 @@ live.backup(dest).then(() => {
 
   console.log("verified " + TABLES.map((t) => t + "=" + got[t]).join(" "));
 }).catch((e) => { console.error("backup failed: " + e.message); process.exit(1); });
-' "$C_DATA/backups/daily/$name" || die "copy or verification failed for $name"
+' "$C_BACKUP/daily/$staging" || die "copy or verification failed for $name (staging file discarded)"
 
-[[ -s "$BACKUP_DIR/daily/$name" ]] || die "$name is missing or empty after a reported success"
-size="$(wc -c < "$BACKUP_DIR/daily/$name" | tr -d ' ')"
+[[ -s "$BACKUP_DIR/daily/$staging" ]] || die "$name is missing or empty after a reported success"
+size="$(wc -c < "$BACKUP_DIR/daily/$staging" | tr -d ' ')"
+
+# Verified. Publish it under its real name; from here it is a backup.
+mv "$BACKUP_DIR/daily/$staging" "$BACKUP_DIR/daily/$name"
+trap - EXIT
 log "wrote daily/$name ($size bytes)"
 
 # --- promote the first backup of the month ---------------------------------
@@ -110,15 +130,25 @@ fi
 # They were version history sitting next to the original, which is not a backup.
 # Idempotent: after the first run there is nothing left to move.
 moved=0
+kept=0
 shopt -s nullglob
 for legacy in "$DATA_DIR"/portfolio.pre-*.db "$DATA_DIR"/portfolio.db.bak-*; do
-  if mv -n "$legacy" "$BACKUP_DIR/archive/"; then
-    moved=$(( moved + 1 ))
+  # `mv -n` exits 0 when it declines to clobber, so its status cannot tell us
+  # whether anything moved. Check first, and leave a same-named archived copy
+  # alone rather than overwriting history with it.
+  if [[ -e "$BACKUP_DIR/archive/$(basename "$legacy")" ]]; then
+    kept=$(( kept + 1 ))
+    continue
   fi
+  mv "$legacy" "$BACKUP_DIR/archive/"
+  moved=$(( moved + 1 ))
 done
 shopt -u nullglob
 if (( moved > 0 )); then
   log "moved $moved legacy copies into backups/archive/"
+fi
+if (( kept > 0 )); then
+  log "left $kept legacy copies in place — archive/ already has a file of that name"
 fi
 
 # --- rotate ----------------------------------------------------------------

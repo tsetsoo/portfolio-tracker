@@ -38,7 +38,10 @@ else
   if [[ -z "$name" ]]; then
     # Names are portfolio-YYYY-MM-DD-HHMMSS.db.gpg, so lexical order is
     # chronological and the last one is the newest.
-    name="$("$RCLONE" lsf "$OFFSITE_REMOTE" | grep '\.db\.gpg$' | sort | tail -1)"
+    # `|| true` so an empty remote reaches the die below with an explanation,
+    # rather than pipefail killing the script silently — this is the script you
+    # reach for in an emergency, so it has to say what is wrong.
+    name="$("$RCLONE" lsf "$OFFSITE_REMOTE" | grep '\.db\.gpg$' | sort | tail -1 || true)"
     [[ -n "$name" ]] || die "no .db.gpg objects at $OFFSITE_REMOTE"
     echo "restore: newest is $name"
   fi

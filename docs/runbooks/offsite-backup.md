@@ -83,11 +83,25 @@ ssh pi@100.118.255.23 'gpg --list-keys "Portfolio Backup"; gpg --list-secret-key
 provider-agnostic — Backblaze B2, S3, Cloudflare R2, Google Drive and so on are
 all just a config entry. B2 is the cheap obvious pick for ~400KB a night.
 
-`rclone config` is interactive, so run it yourself on the Pi:
+`/opt/portfolio` is root-owned, and the config will hold provider credentials
+and must be readable by the service, which runs as `pi`. So create it as `pi`
+with `0600` *first*, then let rclone populate it:
+
+```bash
+ssh pi@100.118.255.23 'sudo install -o pi -g pi -m 0600 /dev/null /opt/portfolio/rclone.conf'
+```
+
+`rclone config` is interactive, so run it yourself (`-t` for a TTY):
 
 ```bash
 ssh -t pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf config'
-chmod 600 /opt/portfolio/rclone.conf   # it holds provider credentials
+```
+
+Check the ownership survived — root-owned here means the nightly push fails on
+an opaque rclone permission error:
+
+```bash
+ssh pi@100.118.255.23 'ls -l /opt/portfolio/rclone.conf'   # want: -rw------- pi pi
 ```
 
 Create a remote (call it `offsite`), then make the bucket/path and check it:

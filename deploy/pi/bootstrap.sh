@@ -43,7 +43,10 @@ fi
 # dist-upgraded (see install-node.sh).
 if [[ ! -x /opt/portfolio/bin/rclone ]]; then
   echo "bootstrap: installing rclone into /opt/portfolio/bin"
-  "$REPO_DIR/install-rclone.sh"
+  # Non-fatal, like the first pull below: rclone exists only for the offsite
+  # push, which ships disabled anyway. A download failure or a missing unzip
+  # must not stop the app being deployed and its timers enabled.
+  "$REPO_DIR/install-rclone.sh" || echo "bootstrap: rclone install failed — offsite push unavailable until it is rerun"
 fi
 
 # First pull (may fail if pi-latest not published yet — OK)

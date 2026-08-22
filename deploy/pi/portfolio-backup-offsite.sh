@@ -44,6 +44,10 @@ if [[ -z "$OFFSITE_REMOTE" || -z "$GPG_RECIPIENT" ]]; then
 fi
 [[ -x "$RCLONE" ]] || die "rclone not found at $RCLONE"
 [[ -f "$RCLONE_CONFIG_FILE" ]] || die "no rclone config at $RCLONE_CONFIG_FILE — run the setup in docs/runbooks/offsite-backup.md"
+# -r as well as -f: a root-owned config is the likely outcome of creating it
+# with sudo, and this unit runs as pi. Say so, rather than letting rclone fail
+# later with an opaque permission error.
+[[ -r "$RCLONE_CONFIG_FILE" ]] || die "$RCLONE_CONFIG_FILE is not readable by $(id -un) — it should be owned by pi with mode 0600"
 
 export RCLONE_CONFIG="$RCLONE_CONFIG_FILE"
 
@@ -108,8 +112,11 @@ rc copyto "$enc" "$OFFSITE_REMOTE/$remote_name" \
 # --- prove it actually arrived ----------------------------------------------
 # The failure this guards is a push that reports success while writing nowhere,
 # so trust the far end's own listing, not rclone's exit code.
-remote_size="$(rc lsjson "$OFFSITE_REMOTE/$remote_name" 2>/dev/null \
-  | sed -n 's/.*"Size":\([0-9]*\).*/\1/p' | head -1)"
+# `|| true` matters: when the object is genuinely missing rclone exits non-zero,
+# and under `set -o pipefail` that would kill the script here — before the die
+# below could say why. The guard has to survive the failure it is guarding.
+remote_size="$(rc lsjson "$OFFSITE_REMOTE/$remote_name" \
+  | sed -n 's/.*"Size":\([0-9]*\).*/\1/p' | head -1 || true)"
 [[ -n "$remote_size" ]] || die "$remote_name is not listed at $OFFSITE_REMOTE after a reported successful upload"
 [[ "$remote_size" == "$enc_size" ]] \
   || die "size mismatch at the far end: local $enc_size, remote $remote_size"
@@ -129,13 +136,21 @@ else
 fi
 
 # --- prune the far end ------------------------------------------------------
-mapfile -t remote_files < <(rc lsf "$OFFSITE_REMOTE" 2>/dev/null | grep '\.db\.gpg$' | sort)
-if (( ${#remote_files[@]} > OFFSITE_KEEP )); then
-  drop=$(( ${#remote_files[@]} - OFFSITE_KEEP ))
+mapfile -t remote_files < <(rc lsf "$OFFSITE_REMOTE" | grep '\.db\.gpg$' | sort || true)
+kept=${#remote_files[@]}
+if (( kept > OFFSITE_KEEP )); then
+  drop=$(( kept - OFFSITE_KEEP ))
   # Names are portfolio-YYYY-MM-DD-HHMMSS.db.gpg, so lexical sort is chronological.
   for old in "${remote_files[@]:0:$drop}"; do
-    rc deletefile "$OFFSITE_REMOTE/$old" && log "pruned remote $old"
+    # Not `&& log`: bash exempts the left side of && from set -e, so a delete
+    # that fails on provider permissions would be silently ignored and remote
+    # retention would quietly stop working while every run still looked green.
+    if ! rc deletefile "$OFFSITE_REMOTE/$old"; then
+      die "failed to prune remote $old — retention is not being enforced at the far end"
+    fi
+    log "pruned remote $old"
+    kept=$(( kept - 1 ))
   done
 fi
 
-log "ok — $remote_name at $OFFSITE_REMOTE ($(( ${#remote_files[@]} > OFFSITE_KEEP ? OFFSITE_KEEP : ${#remote_files[@]} )) kept)"
+log "ok — $remote_name at $OFFSITE_REMOTE ($kept kept)"
