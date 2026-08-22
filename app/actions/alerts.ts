@@ -50,12 +50,29 @@ export async function createAlertAction(
       if (input.targetPrice <= 0) {
         return { ok: false, error: "Target price must be above zero" };
       }
+      if (input.direction !== "above" && input.direction !== "below") {
+        return {
+          ok: false,
+          error: 'A threshold alert needs direction "above" or "below"',
+        };
+      }
     } else {
       if (input.percentWhole == null || !Number.isFinite(input.percentWhole)) {
         return { ok: false, error: "A percentage is required" };
       }
       if (input.percentWhole <= 0) {
         return { ok: false, error: "Percentage must be above zero" };
+      }
+      if (
+        input.direction !== "up" &&
+        input.direction !== "down" &&
+        input.direction !== "either"
+      ) {
+        return {
+          ok: false,
+          error:
+            'A percent alert needs direction "up", "down", or "either"',
+        };
       }
     }
 

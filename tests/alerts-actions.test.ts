@@ -76,6 +76,88 @@ describe("createAlertAction", () => {
     quoteServiceRef.current = null;
   });
 
+  it("rejects a threshold alert whose direction is not above/below, before pricing", async () => {
+    const calls: string[] = [];
+    quoteServiceRef.current = {
+      async getQuote() {
+        calls.push("getQuote");
+        return fresh(96_400);
+      },
+      async getCryptoQuotes(symbols) {
+        calls.push("getCryptoQuotes");
+        return new Map(symbols.map((s) => [s, fresh(96_400)]));
+      },
+      async getFxRate() {
+        return { rate: 1, stale: false };
+      },
+    };
+
+    const result = await createAlertAction(
+      baseInput({ direction: "up" as CreateAlertInput["direction"] }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'A threshold alert needs direction "above" or "below"',
+    });
+    // The point of validating up front: an invalid pairing never burns a
+    // rate-limited quote request.
+    expect(calls).toEqual([]);
+    expect(listAlerts(db)).toEqual([]);
+  });
+
+  it("rejects a percent alert whose direction is not up/down/either, before pricing", async () => {
+    const calls: string[] = [];
+    quoteServiceRef.current = {
+      async getQuote() {
+        calls.push("getQuote");
+        return fresh(96_400);
+      },
+      async getCryptoQuotes(symbols) {
+        calls.push("getCryptoQuotes");
+        return new Map(symbols.map((s) => [s, fresh(96_400)]));
+      },
+      async getFxRate() {
+        return { rate: 1, stale: false };
+      },
+    };
+
+    const result = await createAlertAction(
+      baseInput({
+        kind: "percent_move",
+        direction: "above" as CreateAlertInput["direction"],
+        targetPrice: undefined,
+        percentWhole: 5,
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'A percent alert needs direction "up", "down", or "either"',
+    });
+    expect(calls).toEqual([]);
+    expect(listAlerts(db)).toEqual([]);
+  });
+
+  it("accepts every valid threshold and percent direction pairing", async () => {
+    for (const direction of ["above", "below"] as const) {
+      const result = await createAlertAction(baseInput({ direction }));
+      expect(result).toEqual({ ok: true });
+    }
+    for (const direction of ["up", "down", "either"] as const) {
+      const result = await createAlertAction(
+        baseInput({
+          kind: "percent_move",
+          direction,
+          targetPrice: undefined,
+          percentWhole: 5,
+        }),
+      );
+      expect(result).toEqual({ ok: true });
+    }
+    expect(listAlerts(db)).toHaveLength(5);
+  });
+
   it("rejects creating an alert when the crypto quote came back stale", async () => {
     quoteServiceRef.current = quotesReturning({ ...fresh(96_400), stale: true });
 
