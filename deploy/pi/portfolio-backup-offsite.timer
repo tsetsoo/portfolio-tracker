@@ -1,0 +1,17 @@
+[Unit]
+Description=Push an encrypted portfolio backup off the device once a day
+
+[Timer]
+# 15 minutes after portfolio-backup.timer (00:30 + up to 120s jitter), which is
+# ample for a ~400KB copy on a Pi 3 and keeps the two steps legibly separate in
+# the journal.
+OnCalendar=*-*-* 00:45
+# The whole point is that a copy exists somewhere else, so a push missed to
+# downtime should be taken at the next opportunity.
+Persistent=true
+RandomizedDelaySec=300
+AccuracySec=1min
+Unit=portfolio-backup-offsite.service
+
+[Install]
+WantedBy=timers.target

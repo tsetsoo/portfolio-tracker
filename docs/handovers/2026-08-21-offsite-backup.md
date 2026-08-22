@@ -2,6 +2,15 @@
 
 Written 2026-08-21. Nothing has been built yet; this is the brief.
 
+> **Actioned 2026-08-22.** The on-device half is built, deployed and running:
+> `portfolio-backup.timer` takes a verified, rotated daily copy. The encrypted
+> off-device push is built and tested end to end but is **not enabled**, because
+> it needs a storage account and an encryption key. The owner picked *encrypted
+> push to cloud* and confirmed 14 daily + 12 monthly retention.
+>
+> Live documentation is now **[docs/runbooks/offsite-backup.md](../runbooks/offsite-backup.md)** —
+> read that, not this. This file is kept as the record of why.
+
 ## The problem
 
 The portfolio database has **no off-device backup and no backup automation**.
