@@ -1,15 +1,20 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { acquirePassLock } from "@/lib/alerts/pass-lock";
 import { createAlert, getAlert, setAlertEnabled } from "@/lib/alerts/repo";
-import {
-  runAlerts,
-  runAlertsExclusive,
-  type RunAlertsResult,
-} from "@/lib/alerts/run";
+import { runAlerts, runAlertsNow } from "@/lib/alerts/run";
 import type { AlertNotifier } from "@/lib/alerts/telegram";
 import { migrate } from "@/lib/db/migrate";
 import type { Quote, QuoteService } from "@/lib/quotes/types";
+
+// runAlertsNow() is wired to the real getDb() singleton; swap it for a ref
+// this file controls so the lock-guarding tests below can point it at the
+// same in-memory database the other tests use, without touching a real file.
+const dbRef = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock("@/lib/db/client", () => ({
+  getDb: () => dbRef.current,
+}));
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 
@@ -281,36 +286,60 @@ describe("runAlerts", () => {
   });
 });
 
-describe("runAlertsExclusive", () => {
-  it("joins a second caller onto the in-flight pass, then releases for the next one", async () => {
-    let calls = 0;
-    let resolveFirst: (result: RunAlertsResult) => void = () => {};
-    const pass = vi.fn(() => {
-      calls += 1;
-      if (calls === 1) {
-        return new Promise<RunAlertsResult>((resolve) => {
-          resolveFirst = resolve;
-        });
-      }
-      return Promise.resolve({ checked: 0, fired: 0, errors: 0 });
+describe("runAlertsNow", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+    dbRef.current = db;
+    // Neither var is set in the test environment, so runAlerts() below
+    // always sees notifier: null and returns before touching quotes —
+    // exactly what these tests need, since they only care about the lock.
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+  });
+
+  afterEach(() => {
+    db.close();
+    dbRef.current = null;
+  });
+
+  it("reports already-running, and leaves the lock alone, when another holder's lease is current", async () => {
+    // runAlertsNow() checks the lock against the real clock (it takes no
+    // injectable `now`), so the lease claimed here must be current against
+    // that, not against the fixed NOW used elsewhere in this file.
+    acquirePassLock(db, new Date());
+
+    const result = await runAlertsNow();
+
+    expect(result).toEqual({
+      checked: 0,
+      fired: 0,
+      errors: 0,
+      skipped: "already-running",
     });
+    // Still held: a call that lost the race must not release a lock it
+    // never acquired.
+    const stillLocked = db
+      .prepare(`SELECT locked_until FROM alert_pass_lock WHERE id = 1`)
+      .get() as { locked_until: string | null };
+    expect(stillLocked.locked_until).not.toBeNull();
+  });
 
-    const firstCall = runAlertsExclusive(pass);
-    const secondCall = runAlertsExclusive(pass);
+  it("acquires the lock for the pass and releases it once the pass settles", async () => {
+    const result = await runAlertsNow();
 
-    // Both callers arrived before the pass settled, so only one pass ran.
-    expect(calls).toBe(1);
-    resolveFirst({ checked: 1, fired: 1, errors: 0 });
-
-    const [first, second] = await Promise.all([firstCall, secondCall]);
-    expect(calls).toBe(1);
-    expect(first).toEqual({ checked: 1, fired: 1, errors: 0 });
-    expect(second).toBe(first);
-
-    // The guard must release once the pass settles: a further call after
-    // that starts a brand new pass rather than wedging the scheduler.
-    const third = await runAlertsExclusive(pass);
-    expect(calls).toBe(2);
-    expect(third).toEqual({ checked: 0, fired: 0, errors: 0 });
+    expect(result).toEqual({
+      checked: 0,
+      fired: 0,
+      errors: 0,
+      skipped: "telegram-not-configured",
+    });
+    // The lock must be free again so the next tick is not wedged behind a
+    // pass that already finished.
+    const freedAgain = acquirePassLock(db, new Date(NOW.getTime() + 1));
+    expect(freedAgain).toBe(true);
   });
 });
