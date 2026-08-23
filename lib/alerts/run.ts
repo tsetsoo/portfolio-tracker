@@ -13,8 +13,20 @@ import {
 } from "@/lib/alerts/telegram";
 import type { PriceAlert } from "@/lib/alerts/types";
 import { getDb } from "@/lib/db/client";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { createQuoteService } from "@/lib/quotes/service";
 import type { Quote, QuoteService } from "@/lib/quotes/types";
+
+/**
+ * Bounds every outbound request the pass makes (Yahoo, CoinGecko,
+ * Telegram) so one hung socket cannot block the pass past its own lease —
+ * see DEFAULT_LEASE_MS in lib/alerts/pass-lock.ts. Equity quotes go out
+ * sequentially, one request per symbol, and this app expects only a
+ * handful of armed alerts at a time, so even a run where every request
+ * times out lands comfortably inside the 300s lease at this per-request
+ * budget.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface RunAlertsResult {
   checked: number;
@@ -206,12 +218,15 @@ export async function runAlertsNow(): Promise<RunAlertsResult> {
 
   try {
     const config = telegramConfigFromEnv();
+    // Only the pass's own fetch calls get the timeout: createQuoteService
+    // and createTelegramNotifier are also used outside this function (the
+    // dashboard values holdings through the same quote service, unwrapped),
+    // so the wrapping happens here rather than inside those factories.
+    const fetchImpl = fetchWithTimeout(globalThis.fetch, REQUEST_TIMEOUT_MS);
     return await runAlerts({
       db,
-      quotes: createQuoteService(db, globalThis.fetch),
-      notifier: config
-        ? createTelegramNotifier(config, globalThis.fetch)
-        : null,
+      quotes: createQuoteService(db, fetchImpl),
+      notifier: config ? createTelegramNotifier(config, fetchImpl) : null,
     });
   } finally {
     // Pass the token so a pass that outlived its own lease releases only

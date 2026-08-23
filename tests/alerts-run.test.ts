@@ -434,6 +434,54 @@ describe("runAlertsNow", () => {
     expect(stillLocked.locked_until).not.toBeNull();
   });
 
+  it("wires a timeout-bearing fetch into both the quote service and the notifier", async () => {
+    // A hung socket must not be able to outlive the pass's own lease (see
+    // REQUEST_TIMEOUT_MS in lib/alerts/run.ts). Prove the wiring end to
+    // end: every fetch call the pass makes — CoinGecko for the quote, then
+    // Telegram for the send this crossed threshold triggers — carries an
+    // AbortSignal, without actually waiting out a timeout.
+    process.env.TELEGRAM_BOT_TOKEN = "123:abc";
+    process.env.TELEGRAM_CHAT_ID = "4242";
+    createAlert(db, {
+      symbol: "BTC",
+      assetClass: "crypto",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 100_000,
+      anchorPrice: 90_000,
+      currency: "EUR",
+    });
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      signals.push(init?.signal);
+      if (String(url).includes("coingecko")) {
+        return new Response(
+          JSON.stringify({ bitcoin: { eur: 105_000, usd: 115_000 } }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const result = await runAlertsNow();
+
+      expect(result).toEqual({ checked: 1, fired: 1, errors: 0 });
+      // Both the CoinGecko quote request and the Telegram send went through
+      // the wrapped fetch.
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(signals).toHaveLength(2);
+      for (const signal of signals) {
+        expect(signal).toBeInstanceOf(AbortSignal);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_CHAT_ID;
+    }
+  });
+
   it("acquires the lock for the pass and releases it once the pass settles", async () => {
     const result = await runAlertsNow();
 
