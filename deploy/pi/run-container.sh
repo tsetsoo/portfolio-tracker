@@ -46,10 +46,19 @@ fi
 # A crashed run can leave the name taken.
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
-echo "starting $IMAGE from $APP_DIR on :$PORT"
+# Containers default to UTC. The app derives "today" for net-worth snapshots
+# from its own clock, so a UTC container records the previous day for anything
+# happening between local midnight and the UTC offset — which silently made the
+# 00:12 snapshot timer write yesterday's date every night, and it can never be
+# corrected because snapshot writes are first-write-wins per date.
+TZ_NAME="$(cat /etc/timezone 2>/dev/null || true)"
+: "${TZ_NAME:=Etc/UTC}"
+
+echo "starting $IMAGE from $APP_DIR on :$PORT (TZ $TZ_NAME)"
 exec docker run --rm --name "$CONTAINER" \
   --init \
   --user "$(id -u pi):$(id -g pi)" \
+  --env TZ="$TZ_NAME" \
   --publish "${PORT}:${PORT}" \
   --env NODE_ENV=production \
   --env HOSTNAME=0.0.0.0 \
