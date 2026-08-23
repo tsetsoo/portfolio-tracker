@@ -133,13 +133,18 @@ export async function runAlerts(opts: {
 
     if (!decision.fires) {
       if (decision.detail) errors += 1;
+      // Write the price only when the quote is actually in the alert's
+      // frozen currency — never key this off decision.code. evaluateAlert
+      // checks staleness before currency, so a quote that is BOTH stale and
+      // wrong-currency comes back as "stale-quote", not "currency-mismatch";
+      // gating on the code alone would let that number through and render
+      // as if it were the alert's own currency. Leave the previous
+      // known-good price alone otherwise (recordCheck COALESCEs a null
+      // price).
+      const quoteCurrency = quote.currency.trim().toUpperCase();
       recordCheck(opts.db, alert.id, {
         checkedAt,
-        // A currency-mismatch quote is in the wrong currency for this
-        // alert: writing it to last_price would render as if it were the
-        // alert's own currency. Leave the previous known-good price alone
-        // (recordCheck COALESCEs a null price).
-        price: decision.code === "currency-mismatch" ? null : quote.price,
+        price: quoteCurrency === alert.currency ? quote.price : null,
         error: decision.detail,
       });
       continue;

@@ -264,6 +264,47 @@ describe("runAlerts", () => {
     expect(after?.lastPrice).toBe(160);
   });
 
+  it("does not overwrite last_price with a quote that is both stale and mismatched-currency", async () => {
+    // evaluateAlert checks staleness before currency, so a quote that is
+    // both stale and in the wrong currency comes back as "stale-quote", not
+    // "currency-mismatch". The write-guard in run.ts must key off the
+    // quote's actual currency, not the decision code, or this quote's price
+    // slips through the currency-mismatch fix and still lands on last_price.
+    const alert = createAlert(db, {
+      symbol: "AAPL",
+      assetClass: "equity",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 500,
+      anchorPrice: 150,
+      currency: "EUR",
+    });
+    const { service: firstService } = fakeQuotes({ AAPL: fresh(160, "EUR") });
+    await runAlerts({
+      db,
+      quotes: firstService,
+      notifier: fakeNotifier(),
+      now: NOW,
+    });
+    expect(getAlert(db, alert.id)?.lastPrice).toBe(160);
+
+    const { service } = fakeQuotes({
+      AAPL: { ...fresh(300, "USD"), stale: true },
+    });
+    const notifier = fakeNotifier();
+    const later = new Date(NOW.getTime() + 60_000);
+
+    const result = await runAlerts({ db, quotes: service, notifier, now: later });
+
+    expect(result).toEqual({ checked: 1, fired: 0, errors: 1 });
+    expect(notifier.sent).toEqual([]);
+    const after = getAlert(db, alert.id);
+    expect(after?.lastError).toContain("stale");
+    // The previous known-good price survives; the stale USD 300 quote is
+    // never written under the alert's EUR currency.
+    expect(after?.lastPrice).toBe(160);
+  });
+
   it("ignores disabled alerts and prices equities per alert currency", async () => {
     createAlert(db, {
       symbol: "AAPL",
