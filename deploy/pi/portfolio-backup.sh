@@ -24,24 +24,37 @@ KEEP_MONTHLY="${KEEP_MONTHLY:-12}"
 # The update timer fires every 2 min and restarts the container on a new
 # release, so the container can legitimately be mid-restart when we run.
 CONTAINER_WAIT="${CONTAINER_WAIT:-120}"
+# A deploy mid-copy kills the docker exec, so do not give up on the first try.
+COPY_ATTEMPTS="${COPY_ATTEMPTS:-3}"
+RETRY_DELAY="${RETRY_DELAY:-30}"
 
 log() { echo "portfolio-backup: $*"; }
 die() { echo "portfolio-backup: $*" >&2; exit 1; }
 
-# $DATA_DIR is mounted at /data inside the container. Derive the container's
-# view of $BACKUP_DIR rather than hardcoding it: with a hardcoded /data/backups
-# the *_DIR overrides would put the copy in one directory and its verification
-# and rotation in another, which fails confusingly rather than loudly.
-case "$BACKUP_DIR/" in
-  "$DATA_DIR"/*) C_BACKUP="/data/${BACKUP_DIR#"$DATA_DIR"/}" ;;
-  *) die "PORTFOLIO_BACKUP_DIR ($BACKUP_DIR) must live under PORTFOLIO_DATA_DIR ($DATA_DIR) — the container only has that mount" ;;
+# $DATA_DIR is mounted at /data inside the container. Derive *both* container
+# paths from the host ones rather than hardcoding either: hardcoding the
+# destination let the *_DIR overrides put the copy in one directory and its
+# verification in another, and hardcoding the source made an overridden
+# DATA_DIR read the production database while validating a different file.
+# Strip a trailing slash first so BACKUP_DIR == DATA_DIR is caught by the
+# comparison below instead of yielding a mangled "/data//opt/..." path.
+DATA_DIR="${DATA_DIR%/}"
+BACKUP_DIR="${BACKUP_DIR%/}"
+case "$BACKUP_DIR" in
+  "$DATA_DIR"/?*) C_BACKUP="/data/${BACKUP_DIR#"$DATA_DIR"/}" ;;
+  *) die "PORTFOLIO_BACKUP_DIR ($BACKUP_DIR) must be a directory strictly under PORTFOLIO_DATA_DIR ($DATA_DIR) — the container only has that mount" ;;
 esac
+C_DB="/data/$(basename "$DATA_DIR/portfolio.db")"
 
-# Local time, not UTC, deliberately. Snapshot rows are keyed by localDateString
-# (app/api/snapshot/route.ts), so a UTC stamp would name the 00:30 BST backup
-# with the previous day's date while it contains the current day's snapshot —
-# the wrong file to reach for in a restore. The UK DST step is at 02:00, so a
-# 00:30 daily never lands in the repeated hour.
+# Local time, not UTC, so the filename's date matches the newest snapshot date
+# inside the file — otherwise a restore reaches for the wrong day. That holds
+# because snapshot rows are keyed by localDateString (app/api/snapshot/route.ts)
+# against the *container's* clock, and run-container.sh passes the host
+# timezone in as TZ. If that ever stops happening the container reverts to UTC,
+# snapshot rows go back to being dated a day early, and this naming stops
+# lining up — so the verification below logs the copy's newest snapshot date,
+# making any such drift visible in the journal rather than silent.
+# The UK DST step is at 02:00, so a 00:30 daily never lands in the repeated hour.
 stamp="$(date +%Y-%m-%d-%H%M%S)"
 month="$(date +%Y-%m)"
 name="portfolio-$stamp.db"
@@ -51,16 +64,22 @@ mkdir -p "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly" "$BACKUP_DIR/archive"
 [[ -f "$DATA_DIR/portfolio.db" ]] || die "no live database at $DATA_DIR/portfolio.db"
 
 # --- wait for the container -------------------------------------------------
-waited=0
-until "$DOCKER" exec "$CONTAINER" true >/dev/null 2>&1; do
-  if (( waited >= CONTAINER_WAIT )); then
-    die "container '$CONTAINER' not exec-able after ${CONTAINER_WAIT}s; no sqlite available to make a consistent copy"
+wait_for_container() {
+  local waited=0
+  until "$DOCKER" exec "$CONTAINER" true >/dev/null 2>&1; do
+    if (( waited >= CONTAINER_WAIT )); then
+      die "container '$CONTAINER' not exec-able after ${CONTAINER_WAIT}s; no sqlite available to make a consistent copy"
+    fi
+    if (( waited == 0 )); then
+      log "waiting for container '$CONTAINER'"
+    fi
+    sleep 5
+    waited=$(( waited + 5 ))
+  done
+  if (( waited > 0 )); then
+    log "container ready after ${waited}s"
   fi
-  (( waited == 0 )) && log "waiting for container '$CONTAINER'"
-  sleep 5
-  waited=$(( waited + 5 ))
-done
-(( waited > 0 )) && log "container ready after ${waited}s"
+}
 
 # --- copy + verify ----------------------------------------------------------
 # Write to a staging name and rename in only after verification passes. A copy
@@ -71,7 +90,20 @@ done
 # keeps the staging file out of those *.db globs while it is in flight.
 staging=".incoming-$name"
 cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging"; }
-trap cleanup_staging EXIT
+# INT/TERM as well as EXIT: a systemctl stop or a start-timeout kill would
+# otherwise leave the staging file behind, and being a dotfile it is invisible
+# to every *.db glob here — including prune — so orphans would accumulate on the
+# SD card indefinitely without ever being rotated out.
+trap cleanup_staging EXIT INT TERM
+
+# Sweep any staging files a previous hard kill left behind, for the same reason.
+shopt -s nullglob dotglob
+stale=( "$BACKUP_DIR"/daily/.incoming-*.db )
+shopt -u nullglob dotglob
+if (( ${#stale[@]} > 0 )); then
+  rm -f "${stale[@]}"
+  log "cleared ${#stale[@]} stale staging file(s) from a previous interrupted run"
+fi
 
 # One node invocation, so verification reads the copy this backup just wrote and
 # live row counts are sampled either side of it: the app keeps serving during
@@ -79,14 +111,16 @@ trap cleanup_staging EXIT
 # snapshot at some instant between the two samples, so any count *between* them
 # is legitimate — only a count outside that range means we captured something
 # that was never in the database.
-"$DOCKER" exec "$CONTAINER" node -e '
+copy_and_verify() {
+  "$DOCKER" exec "$CONTAINER" node -e '
 const D = require("/app/node_modules/better-sqlite3");
 const TABLES = ["holdings", "lots", "snapshots", "import_batches"];
 const dest = process.argv[1];
+const src = process.argv[2];
 const counts = (db) => Object.fromEntries(
   TABLES.map((t) => [t, db.prepare("SELECT COUNT(*) n FROM " + t).get().n]));
 
-const live = new D("/data/portfolio.db", { readonly: true });
+const live = new D(src, { readonly: true });
 const before = counts(live);
 
 live.backup(dest).then(() => {
@@ -97,6 +131,8 @@ live.backup(dest).then(() => {
   const integrity = copy.pragma("integrity_check")[0].integrity_check;
   if (integrity !== "ok") throw new Error("integrity_check: " + integrity);
   const got = counts(copy);
+  const newestRow = copy.prepare("SELECT date FROM snapshots ORDER BY date DESC LIMIT 1").get();
+  const copyNewestSnapshot = newestRow ? newestRow.date : null;
   copy.close();
 
   // A range, not equality against the two endpoints: an import landing mid-copy
@@ -110,16 +146,46 @@ live.backup(dest).then(() => {
   }
   if (got.holdings === 0) throw new Error("copy has zero holdings; refusing to keep it");
 
-  console.log("verified " + TABLES.map((t) => t + "=" + got[t]).join(" "));
-}).catch((e) => { console.error("backup failed: " + e.message); process.exit(1); });
-' "$C_BACKUP/daily/$staging" || die "copy or verification failed for $name (staging file discarded)"
+  // Newest snapshot date, so a drift between the filename date and what the
+  // file actually contains (see the TZ note above) shows up in the journal.
+  console.log("verified " + TABLES.map((t) => t + "=" + got[t]).join(" ")
+    + (copyNewestSnapshot ? " newest-snapshot=" + copyNewestSnapshot : ""));
+}).catch((e) => {
+  // process.exitCode, not process.exit(): docker exec gives node a pipe, writes
+  // to a pipe are async, and process.exit() would tear the process down before
+  // this flushed — losing the one line that says *why* the copy was rejected
+  // and leaving only the generic shell-side message in the journal.
+  console.error("backup failed: " + e.message);
+  process.exitCode = 1;
+});
+' "$C_BACKUP/daily/$staging" "$C_DB"
+}
+
+# Retry, because portfolio-update.timer fires every 2 minutes and restarts the
+# container on a new release — which kills an in-flight docker exec. Without a
+# retry that loses the whole night's backup: Persistent=true catches timer runs
+# that were *missed*, not ones that ran and failed.
+attempt=0
+while :; do
+  attempt=$(( attempt + 1 ))
+  wait_for_container
+  if copy_and_verify; then
+    break
+  fi
+  cleanup_staging
+  if (( attempt >= COPY_ATTEMPTS )); then
+    die "copy or verification failed for $name after $attempt attempt(s) (staging file discarded)"
+  fi
+  log "attempt $attempt failed; retrying in ${RETRY_DELAY}s"
+  sleep "$RETRY_DELAY"
+done
 
 [[ -s "$BACKUP_DIR/daily/$staging" ]] || die "$name is missing or empty after a reported success"
 size="$(wc -c < "$BACKUP_DIR/daily/$staging" | tr -d ' ')"
 
 # Verified. Publish it under its real name; from here it is a backup.
 mv "$BACKUP_DIR/daily/$staging" "$BACKUP_DIR/daily/$name"
-trap - EXIT
+trap - EXIT INT TERM
 log "wrote daily/$name ($size bytes)"
 
 # --- promote the first backup of the month ---------------------------------

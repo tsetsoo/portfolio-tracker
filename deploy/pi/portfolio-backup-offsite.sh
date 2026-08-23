@@ -161,7 +161,10 @@ remote_size="$(rc lsjson "$OFFSITE_REMOTE/$remote_name" \
 # Read the bytes back and hash them. Size alone would not catch corruption in
 # transit, and this is the only copy that survives the SD card.
 readback="$(mktemp)"
-if rc cat "$OFFSITE_REMOTE/$remote_name" > "$readback" 2>/dev/null; then
+# No 2>/dev/null here: rc already strips the known cosmetic lines, and silencing
+# its stderr would discard the actual reason a read-back failed — expired auth,
+# a vanished object, a network error — leaving only the generic die below.
+if rc cat "$OFFSITE_REMOTE/$remote_name" > "$readback"; then
   remote_hash="$(sha256sum "$readback" | awk '{print $1}')"
   rm -f "$readback"
   [[ "$remote_hash" == "$local_hash" ]] \

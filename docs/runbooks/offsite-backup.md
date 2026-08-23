@@ -165,7 +165,11 @@ To actually put a restored file back:
 ```bash
 ssh pi@100.118.255.23 'sudo systemctl stop portfolio'
 scp data/restore/portfolio-<stamp>.db pi@100.118.255.23:/tmp/restored.db
-ssh pi@100.118.255.23 'cp /opt/portfolio/data/portfolio.db /opt/portfolio/data/portfolio.before-restore.db \
+# The pre-restore copy is named portfolio.pre-* on purpose: that is the pattern
+# the backup script's sweep recognises, so it gets filed into backups/archive/
+# on the next run instead of sitting next to the live database forever.
+ssh pi@100.118.255.23 'cp /opt/portfolio/data/portfolio.db \
+       "/opt/portfolio/data/portfolio.pre-restore-$(date +%Y%m%dT%H%M%S).db" \
   && mv /tmp/restored.db /opt/portfolio/data/portfolio.db \
   && chown pi:pi /opt/portfolio/data/portfolio.db \
   && sudo systemctl start portfolio'
@@ -198,9 +202,20 @@ copied over by hand:
 scp deploy/pi/portfolio-backup.sh deploy/pi/portfolio-backup-offsite.sh pi@100.118.255.23:/tmp/
 ssh pi@100.118.255.23 'sudo install -o root -g root -m 0755 /tmp/portfolio-backup.sh /opt/portfolio/portfolio-backup.sh
                        sudo install -o root -g root -m 0755 /tmp/portfolio-backup-offsite.sh /opt/portfolio/portfolio-backup-offsite.sh'
-# unit files, if changed:
+# unit files, if changed — install every one you copied, or daemon-reload runs
+# against files that never changed and the edit silently does nothing:
 scp deploy/pi/portfolio-backup*.{service,timer} pi@100.118.255.23:/tmp/
-ssh pi@100.118.255.23 'sudo install -m 0644 /tmp/portfolio-backup.service /etc/systemd/system/ && sudo systemctl daemon-reload'
+ssh pi@100.118.255.23 'for u in portfolio-backup.service portfolio-backup.timer \
+                                portfolio-backup-offsite.service portfolio-backup-offsite.timer; do
+                         sudo install -m 0644 "/tmp/$u" "/etc/systemd/system/$u"
+                       done
+                       sudo systemctl daemon-reload'
+```
+
+After changing a `.timer`, `daemon-reload` alone does not re-arm it — restart it:
+
+```bash
+ssh pi@100.118.255.23 'sudo systemctl restart portfolio-backup.timer'
 ```
 
 ## Known wart
