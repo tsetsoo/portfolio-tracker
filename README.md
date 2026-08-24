@@ -59,7 +59,12 @@ Then open `http://raspberrypi:8081` or `http://100.118.255.23:8081` on the tailn
 Alerts are evaluated in-process every 10 minutes and delivered by a Telegram
 bot. Override the interval with `ALERTS_INTERVAL_MS`; a value below 60000, or
 a non-numeric one, falls back to the 600000 default rather than being clamped
-up to it. Create one with [@BotFather](https://t.me/botfather), message it
+up to it. That floor is not a freshness guarantee, though: the pass fetches
+quotes from `price_cache` without forcing a refresh, and that cache's TTL is
+10 minutes, so an interval below 10 minutes just re-evaluates the same cached
+price more often — the effective resolution of an alert stays at the quote
+TTL no matter how low `ALERTS_INTERVAL_MS` is set. Create one with
+[@BotFather](https://t.me/botfather), message it
 once, and read your chat id from
 `https://api.telegram.org/bot<token>/getUpdates`. Then on the Pi:
 
