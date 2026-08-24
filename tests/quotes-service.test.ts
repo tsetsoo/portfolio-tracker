@@ -221,6 +221,64 @@ describe("quote service cache", () => {
     );
   });
 
+  it("honours a fiat preferredCurrency that is neither EUR nor USD (GBP)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { gbp: 90_000, usd: 110_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "GBP" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 90_000,
+            currency: "GBP",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=gbp,usd",
+    );
+  });
+
+  it("falls back to the base currency for a non-fiat preferredCurrency (USDT)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 98_400, usd: 106_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "USDT" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 98_400,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd",
+    );
+  });
+
   it("does not let a cached EUR crypto row satisfy a USD crypto request", async () => {
     db.prepare(
       `INSERT INTO price_cache
