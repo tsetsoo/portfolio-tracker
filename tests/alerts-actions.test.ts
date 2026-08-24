@@ -173,8 +173,11 @@ describe("createAlertAction", () => {
   });
 
   it("rejects creating an alert when the equity quote came back stale", async () => {
+    // Requested currency defaults to the portfolio base (EUR): the quote
+    // must match that so this test exercises the staleness check, not the
+    // separate currency-mismatch rejection in resolveAlertSymbol.
     quoteServiceRef.current = quotesReturning({
-      ...fresh(180, "USD"),
+      ...fresh(180, "EUR"),
       stale: true,
     });
 
