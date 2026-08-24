@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import {
   createAlertAction,
   deleteAlertAction,
   runAlertsNowAction,
   toggleAlertAction,
+  type ActionResult,
   type CreateAlertInput,
 } from "@/app/actions/alerts";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +18,68 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import type { RunAlertsResult } from "@/lib/alerts/run";
 import type { PriceAlert } from "@/lib/alerts/types";
 import { formatMoney } from "@/lib/format-money";
+
+type FormState = {
+  symbol: string;
+  assetClass: CreateAlertInput["assetClass"];
+  kind: CreateAlertInput["kind"];
+  direction: CreateAlertInput["direction"];
+  targetPrice: string;
+  percentWhole: string;
+  cooldownMinutes: string;
+  label: string;
+};
+
+const DEFAULT_DIRECTION: Record<
+  CreateAlertInput["kind"],
+  CreateAlertInput["direction"]
+> = {
+  threshold: "above",
+  percent_move: "either",
+};
+
+const EMPTY_FORM: FormState = {
+  symbol: "",
+  assetClass: "crypto",
+  kind: "threshold",
+  direction: DEFAULT_DIRECTION.threshold,
+  targetPrice: "",
+  percentWhole: "5",
+  cooldownMinutes: "1440",
+  label: "",
+};
+
+/**
+ * The submitted form state on a rejected create, unchanged so the user's
+ * input survives (React 19 resets uncontrolled fields once the `action`
+ * resolves regardless of outcome — controlling the inputs from `form` is
+ * what keeps them from being wiped on failure). A successful create returns
+ * to EMPTY_FORM, which is the one case where clearing is wanted.
+ */
+export function nextFormAfterCreate(
+  current: FormState,
+  result: ActionResult,
+): FormState {
+  return result.ok ? EMPTY_FORM : current;
+}
+
+function buildCreateAlertInput(form: FormState): CreateAlertInput {
+  const cooldownRaw = form.cooldownMinutes.trim();
+  const input: CreateAlertInput = {
+    symbol: form.symbol,
+    assetClass: form.assetClass,
+    kind: form.kind,
+    direction: form.direction,
+    cooldownMinutes: cooldownRaw === "" ? 1440 : Number(cooldownRaw),
+    label: form.label.trim() || undefined,
+  };
+  if (form.kind === "threshold") {
+    input.targetPrice = Number(form.targetPrice);
+  } else {
+    input.percentWhole = Number(form.percentWhole);
+  }
+  return input;
+}
 
 function describeRunResult(result: RunAlertsResult): string {
   if (result.skipped === "telegram-not-configured") {
@@ -39,21 +102,44 @@ function describeCondition(alert: PriceAlert): string {
   return `${sign}${whole}%`;
 }
 
-function describeStatus(alert: PriceAlert, now: number): string {
-  // A disabled alert is never re-checked, so its recorded error can never
-  // clear. Show both, so neither the off-state nor the reason is hidden.
+/**
+ * The part of an alert's status that never depends on the current time: a
+ * disabled alert, a recorded error, or an alert that has never fired (and so
+ * cannot be mid-cooldown) is exactly as "Armed"/"Disabled" on the server as
+ * it will be on the client. Returns null when the answer genuinely depends
+ * on "now" (fired at least once, still enabled, no error) — that case needs
+ * describeStatus below.
+ */
+function timeAgnosticStatus(alert: PriceAlert): string | null {
   if (!alert.enabled) {
     return alert.lastError ? `Disabled — ${alert.lastError}` : "Disabled";
   }
   if (alert.lastError) return alert.lastError;
-  if (alert.lastFiredAt) {
-    const readyAt =
-      new Date(alert.lastFiredAt).getTime() + alert.cooldownMinutes * 60_000;
-    if (readyAt > now) {
-      return `Cooling down until ${new Date(readyAt).toLocaleString()}`;
-    }
+  if (!alert.lastFiredAt) return "Armed";
+  return null;
+}
+
+export function describeStatus(alert: PriceAlert, now: number): string {
+  const fixed = timeAgnosticStatus(alert);
+  if (fixed !== null) return fixed;
+  const readyAt =
+    new Date(alert.lastFiredAt!).getTime() + alert.cooldownMinutes * 60_000;
+  if (readyAt > now) {
+    return `Cooling down until ${new Date(readyAt).toLocaleString()}`;
   }
   return "Armed";
+}
+
+/**
+ * A deterministic, locale- and timezone-independent rendering of an ISO
+ * instant, used for the first paint (server render and the client's initial
+ * hydration render), which must match byte-for-byte or React logs a
+ * hydration mismatch. `toLocaleString()` depends on the container's locale
+ * and timezone on the server and the viewer's in the browser, so it cannot
+ * be used until after mount confirms both renders already agree.
+ */
+export function formatInstantUtc(iso: string): string {
+  return `${iso.slice(0, 16).replace("T", " ")} UTC`;
 }
 
 export function AlertsManager({
@@ -65,8 +151,27 @@ export function AlertsManager({
 }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [kind, setKind] = useState<CreateAlertInput["kind"]>("threshold");
-  const now = Date.now();
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  // False on the server and on the client's first (pre-hydration) render, so
+  // that render is identical in both places; flips true only after mount,
+  // once it's safe to compute anything from Date.now() or toLocaleString().
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function changeKind(nextKind: CreateAlertInput["kind"]) {
+    setForm((current) => ({
+      ...current,
+      kind: nextKind,
+      direction: DEFAULT_DIRECTION[nextKind],
+    }));
+  }
 
   function run(action: () => Promise<string | void>) {
     startTransition(async () => {
@@ -81,28 +186,13 @@ export function AlertsManager({
     });
   }
 
-  function submit(formData: FormData) {
-    const chosenKind = formData.get("kind") as CreateAlertInput["kind"];
-    const cooldownRaw = String(formData.get("cooldownMinutes") ?? "").trim();
-    const input: CreateAlertInput = {
-      symbol: String(formData.get("symbol") ?? ""),
-      assetClass: formData.get("assetClass") === "equity" ? "equity" : "crypto",
-      kind: chosenKind,
-      direction: String(
-        formData.get("direction") ?? "above",
-      ) as CreateAlertInput["direction"],
-      cooldownMinutes: cooldownRaw === "" ? 1440 : Number(cooldownRaw),
-      label: String(formData.get("label") ?? "") || undefined,
-    };
-    if (chosenKind === "threshold") {
-      input.targetPrice = Number(formData.get("targetPrice"));
-    } else {
-      input.percentWhole = Number(formData.get("percentWhole"));
-    }
+  function submit() {
+    const input = buildCreateAlertInput(form);
 
     startTransition(async () => {
       const result = await createAlertAction(input);
       setMessage(result.ok ? "Alert created." : result.error);
+      setForm((current) => nextFormAfterCreate(current, result));
     });
   }
 
@@ -121,11 +211,26 @@ export function AlertsManager({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1.5">
               <span className="eyebrow">Symbol</span>
-              <input name="symbol" required placeholder="BTC" />
+              <input
+                name="symbol"
+                required
+                placeholder="BTC"
+                value={form.symbol}
+                onChange={(event) => updateForm("symbol", event.target.value)}
+              />
             </label>
             <label className="grid gap-1.5">
               <span className="eyebrow">Asset class</span>
-              <select name="assetClass" defaultValue="crypto">
+              <select
+                name="assetClass"
+                value={form.assetClass}
+                onChange={(event) =>
+                  updateForm(
+                    "assetClass",
+                    event.target.value === "equity" ? "equity" : "crypto",
+                  )
+                }
+              >
                 <option value="crypto">Crypto</option>
                 <option value="equity">Equity</option>
               </select>
@@ -134,9 +239,9 @@ export function AlertsManager({
               <span className="eyebrow">Kind</span>
               <select
                 name="kind"
-                value={kind}
+                value={form.kind}
                 onChange={(event) =>
-                  setKind(event.target.value as CreateAlertInput["kind"])
+                  changeKind(event.target.value as CreateAlertInput["kind"])
                 }
               >
                 <option value="threshold">Price threshold</option>
@@ -147,10 +252,15 @@ export function AlertsManager({
               <span className="eyebrow">Direction</span>
               <select
                 name="direction"
-                defaultValue={kind === "threshold" ? "above" : "either"}
-                key={kind}
+                value={form.direction}
+                onChange={(event) =>
+                  updateForm(
+                    "direction",
+                    event.target.value as CreateAlertInput["direction"],
+                  )
+                }
               >
-                {kind === "threshold" ? (
+                {form.kind === "threshold" ? (
                   <>
                     <option value="above">Above</option>
                     <option value="below">Below</option>
@@ -164,7 +274,7 @@ export function AlertsManager({
                 )}
               </select>
             </label>
-            {kind === "threshold" ? (
+            {form.kind === "threshold" ? (
               <label className="grid gap-1.5">
                 <span className="eyebrow">Target price</span>
                 <input
@@ -173,6 +283,10 @@ export function AlertsManager({
                   step="any"
                   min="0"
                   required
+                  value={form.targetPrice}
+                  onChange={(event) =>
+                    updateForm("targetPrice", event.target.value)
+                  }
                 />
               </label>
             ) : (
@@ -183,8 +297,11 @@ export function AlertsManager({
                   type="number"
                   step="any"
                   min="0"
-                  defaultValue={5}
                   required
+                  value={form.percentWhole}
+                  onChange={(event) =>
+                    updateForm("percentWhole", event.target.value)
+                  }
                 />
               </label>
             )}
@@ -194,13 +311,21 @@ export function AlertsManager({
                 name="cooldownMinutes"
                 type="number"
                 min="1"
-                defaultValue={1440}
                 required
+                value={form.cooldownMinutes}
+                onChange={(event) =>
+                  updateForm("cooldownMinutes", event.target.value)
+                }
               />
             </label>
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="eyebrow">Label (optional)</span>
-              <input name="label" placeholder="take profit" />
+              <input
+                name="label"
+                placeholder="take profit"
+                value={form.label}
+                onChange={(event) => updateForm("label", event.target.value)}
+              />
             </label>
           </div>
 
@@ -280,12 +405,16 @@ export function AlertsManager({
                 <td className="text-dim">
                   {alert.lastCheckedAt == null
                     ? "—"
-                    : new Date(alert.lastCheckedAt).toLocaleString()}
+                    : mounted
+                      ? new Date(alert.lastCheckedAt).toLocaleString()
+                      : formatInstantUtc(alert.lastCheckedAt)}
                 </td>
                 <td
                   className={alert.lastError ? "text-warn" : "text-dim"}
                 >
-                  {describeStatus(alert, now)}
+                  {mounted
+                    ? describeStatus(alert, Date.now())
+                    : timeAgnosticStatus(alert) ?? "—"}
                 </td>
                 <td>
                   <div className="flex justify-end gap-2">

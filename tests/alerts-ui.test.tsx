@@ -8,7 +8,12 @@ vi.mock("@/app/actions/alerts", () => ({
   runAlertsNowAction: vi.fn(),
 }));
 
-import { AlertsManager } from "@/components/AlertsManager";
+import {
+  AlertsManager,
+  describeStatus,
+  formatInstantUtc,
+  nextFormAfterCreate,
+} from "@/components/AlertsManager";
 import type { PriceAlert } from "@/lib/alerts/types";
 
 function alert(overrides: Partial<PriceAlert> = {}): PriceAlert {
@@ -94,18 +99,62 @@ describe("AlertsManager", () => {
     expect(html).toContain("No alerts yet");
   });
 
-  it("shows a cooldown message for an alert still inside its cooldown window", () => {
+  it("describeStatus reports a cooldown message for an alert still inside its window", () => {
     const recentFire = new Date(Date.now() - 5 * 60_000).toISOString();
-    const html = renderToStaticMarkup(
-      <AlertsManager
-        alerts={[alert({ lastFiredAt: recentFire, cooldownMinutes: 1440 })]}
-        telegramConfigured
-      />,
+    const status = describeStatus(
+      alert({ lastFiredAt: recentFire, cooldownMinutes: 1440 }),
+      Date.now(),
     );
-    expect(html).toContain("Cooling down until");
+    expect(status).toContain("Cooling down until");
   });
 
-  it("renders the Checked column from lastCheckedAt, or an em-dash when null", () => {
+  it("describeStatus reports Armed once an alert's cooldown has elapsed", () => {
+    const oldFire = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+    const status = describeStatus(
+      alert({ lastFiredAt: oldFire, cooldownMinutes: 1440 }),
+      Date.now(),
+    );
+    expect(status).toBe("Armed");
+  });
+
+  it(
+    "renders a stable pre-mount placeholder for a fired alert's status, " +
+      "since Cooling-down-vs-Armed depends on the client's clock",
+    () => {
+      const recentFire = new Date(Date.now() - 5 * 60_000).toISOString();
+      const oldFire = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+
+      const coolingHtml = renderToStaticMarkup(
+        <AlertsManager
+          alerts={[alert({ lastFiredAt: recentFire, cooldownMinutes: 1440 })]}
+          telegramConfigured
+        />,
+      );
+      const armedHtml = renderToStaticMarkup(
+        <AlertsManager
+          alerts={[alert({ lastFiredAt: oldFire, cooldownMinutes: 1440 })]}
+          telegramConfigured
+        />,
+      );
+
+      // The server (and the client's pre-hydration render) cannot honestly
+      // tell these two rows apart without a shared clock, so both render the
+      // same neutral placeholder — never "Cooling down until ..." or
+      // "Armed", which would only be true on one side of the mount.
+      expect(coolingHtml).not.toContain("Cooling down until");
+      expect(coolingHtml).not.toContain(">Armed<");
+      expect(armedHtml).not.toContain("Cooling down until");
+      expect(armedHtml).not.toContain(">Armed<");
+    },
+  );
+
+  it("formatInstantUtc renders an ISO instant deterministically, independent of locale/timezone", () => {
+    expect(formatInstantUtc("2026-08-21T12:34:00.000Z")).toBe(
+      "2026-08-21 12:34 UTC",
+    );
+  });
+
+  it("renders the Checked column pre-mount using the deterministic UTC format, or an em-dash when null", () => {
     const checkedAt = "2026-08-21T12:00:00.000Z";
     const html = renderToStaticMarkup(
       <AlertsManager
@@ -113,7 +162,11 @@ describe("AlertsManager", () => {
         telegramConfigured
       />,
     );
-    expect(html).toContain(new Date(checkedAt).toLocaleString());
+    expect(html).toContain(formatInstantUtc(checkedAt));
+    // Never the locale-dependent format pre-mount: that's exactly the string
+    // that would differ between the server's container and the viewer's
+    // browser and produce a hydration mismatch.
+    expect(html).not.toContain(new Date(checkedAt).toLocaleString());
 
     const htmlNull = renderToStaticMarkup(
       <AlertsManager
@@ -122,6 +175,32 @@ describe("AlertsManager", () => {
       />,
     );
     expect(htmlNull).toContain("—");
+  });
+
+  it("nextFormAfterCreate preserves the submitted form on failure, and clears it on success", () => {
+    const typed = {
+      symbol: "FOO",
+      assetClass: "crypto" as const,
+      kind: "threshold" as const,
+      direction: "above" as const,
+      targetPrice: "123.45",
+      percentWhole: "5",
+      cooldownMinutes: "60",
+      label: "take profit",
+    };
+
+    const afterFailure = nextFormAfterCreate(typed, {
+      ok: false,
+      error:
+        "The price for FOO could not be refreshed right now. Try again shortly.",
+    });
+    expect(afterFailure).toEqual(typed);
+
+    const afterSuccess = nextFormAfterCreate(typed, { ok: true });
+    expect(afterSuccess).not.toEqual(typed);
+    expect(afterSuccess.symbol).toBe("");
+    expect(afterSuccess.targetPrice).toBe("");
+    expect(afterSuccess.label).toBe("");
   });
 
   it("shows both Disabled and the error for a disabled alert with a lastError", () => {
@@ -147,11 +226,12 @@ describe("AlertsManager", () => {
     expect(html).not.toContain("Disabled —");
   });
 
-  it("shows Armed once an alert's cooldown has elapsed", () => {
-    const oldFire = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+  it("shows Armed immediately, even pre-mount, for an alert that has never fired", () => {
+    // Never having fired means it cannot be mid-cooldown, so this doesn't
+    // depend on "now" and is safe to render before mount too.
     const html = renderToStaticMarkup(
       <AlertsManager
-        alerts={[alert({ lastFiredAt: oldFire, cooldownMinutes: 1440 })]}
+        alerts={[alert({ lastFiredAt: null })]}
         telegramConfigured
       />,
     );
