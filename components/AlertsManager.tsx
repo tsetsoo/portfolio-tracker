@@ -28,6 +28,7 @@ type FormState = {
   percentWhole: string;
   cooldownMinutes: string;
   label: string;
+  currency: string;
 };
 
 const DEFAULT_DIRECTION: Record<
@@ -38,29 +39,56 @@ const DEFAULT_DIRECTION: Record<
   percent_move: "either",
 };
 
-const EMPTY_FORM: FormState = {
-  symbol: "",
-  assetClass: "crypto",
-  kind: "threshold",
-  direction: DEFAULT_DIRECTION.threshold,
-  targetPrice: "",
-  percentWhole: "5",
-  cooldownMinutes: "1440",
-  label: "",
-};
+/**
+ * The blank form to start from, or to return to after a successful create.
+ * `currency` depends on `allowedAlertCurrencies(db)` (a server-computed prop,
+ * not a module-level constant), so this is a function rather than the plain
+ * object it used to be; `allowedCurrencies[0]` is always the base currency
+ * (allowedAlertCurrencies puts it first).
+ */
+export function buildEmptyForm(allowedCurrencies: string[]): FormState {
+  return {
+    symbol: "",
+    assetClass: "crypto",
+    kind: "threshold",
+    direction: DEFAULT_DIRECTION.threshold,
+    targetPrice: "",
+    percentWhole: "5",
+    cooldownMinutes: "1440",
+    label: "",
+    currency: allowedCurrencies[0],
+  };
+}
 
 /**
  * The submitted form state on a rejected create, unchanged so the user's
  * input survives (React 19 resets uncontrolled fields once the `action`
  * resolves regardless of outcome — controlling the inputs from `form` is
  * what keeps them from being wiped on failure). A successful create returns
- * to EMPTY_FORM, which is the one case where clearing is wanted.
+ * to `emptyForm`, which is the one case where clearing is wanted.
  */
 export function nextFormAfterCreate(
   current: FormState,
   result: ActionResult,
+  emptyForm: FormState,
 ): FormState {
-  return result.ok ? EMPTY_FORM : current;
+  return result.ok ? emptyForm : current;
+}
+
+/**
+ * The currency an alert will actually be created with, given the current
+ * form. Crypto alerts let the user pick from `allowedCurrencies` via the
+ * select below; equity alerts always use the base currency (the first
+ * allowed one) because Yahoo returns a listing's own currency, and honoring
+ * a hidden/stale pick there would mostly manufacture create-time failures.
+ * Used both to build the submitted `CreateAlertInput` and to label the
+ * target-price field, so the two can never disagree.
+ */
+export function resolveSubmittedCurrency(
+  form: Pick<FormState, "assetClass" | "currency">,
+  allowedCurrencies: string[],
+): string {
+  return form.assetClass === "crypto" ? form.currency : allowedCurrencies[0];
 }
 
 /**
@@ -83,13 +111,17 @@ export function nextFormAfterKindChange(
   };
 }
 
-function buildCreateAlertInput(form: FormState): CreateAlertInput {
+function buildCreateAlertInput(
+  form: FormState,
+  allowedCurrencies: string[],
+): CreateAlertInput {
   const cooldownRaw = form.cooldownMinutes.trim();
   const input: CreateAlertInput = {
     symbol: form.symbol,
     assetClass: form.assetClass,
     kind: form.kind,
     direction: form.direction,
+    currency: resolveSubmittedCurrency(form, allowedCurrencies),
     cooldownMinutes: cooldownRaw === "" ? 1440 : Number(cooldownRaw),
     label: form.label.trim() || undefined,
   };
@@ -164,14 +196,18 @@ export function formatInstantUtc(iso: string): string {
 
 export function AlertsManager({
   alerts,
+  allowedCurrencies,
   telegramConfigured,
 }: {
   alerts: PriceAlert[];
+  allowedCurrencies: string[];
   telegramConfigured: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] = useState<FormState>(() =>
+    buildEmptyForm(allowedCurrencies),
+  );
   // False on the server and on the client's first (pre-hydration) render, so
   // that render is identical in both places; flips true only after mount,
   // once it's safe to compute anything from Date.now() or toLocaleString().
@@ -203,14 +239,20 @@ export function AlertsManager({
   }
 
   function submit() {
-    const input = buildCreateAlertInput(form);
+    const input = buildCreateAlertInput(form, allowedCurrencies);
 
     startTransition(async () => {
       const result = await createAlertAction(input);
       setMessage(result.ok ? "Alert created." : result.error);
-      setForm((current) => nextFormAfterCreate(current, result));
+      setForm((current) =>
+        nextFormAfterCreate(current, result, buildEmptyForm(allowedCurrencies)),
+      );
     });
   }
+
+  const showCurrencyPicker =
+    form.assetClass === "crypto" && allowedCurrencies.length > 1;
+  const displayCurrency = resolveSubmittedCurrency(form, allowedCurrencies);
 
   return (
     <div className="grid gap-5">
@@ -290,9 +332,27 @@ export function AlertsManager({
                 )}
               </select>
             </label>
+            {showCurrencyPicker && (
+              <label className="grid gap-1.5">
+                <span className="eyebrow">Currency</span>
+                <select
+                  name="currency"
+                  value={form.currency}
+                  onChange={(event) =>
+                    updateForm("currency", event.target.value)
+                  }
+                >
+                  {allowedCurrencies.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {form.kind === "threshold" ? (
               <label className="grid gap-1.5">
-                <span className="eyebrow">Target price</span>
+                <span className="eyebrow">Target price ({displayCurrency})</span>
                 <input
                   name="targetPrice"
                   type="number"
