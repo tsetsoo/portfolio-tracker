@@ -57,12 +57,17 @@ ssh pi@100.118.255.23 'gpg --list-secret-keys "Portfolio Backup" || echo "no sec
 
 ### 3. Point rclone at a bucket
 
-`rclone` is already at `/opt/portfolio/bin/rclone`. Create the config as `pi`
-first — `/opt/portfolio` is root-owned and the service runs as `pi`:
+`rclone` is already at `/opt/portfolio/bin/rclone`. Its config lives in
+`/opt/portfolio/rclone.d/`, a directory `pi` owns — **not** directly in
+`/opt/portfolio`, which is root-owned. rclone saves config by writing a temp
+file beside it and renaming, so a pi-writable file in a root-owned directory is
+not enough; you get `permission denied ... failed to create temp file`. This
+matters beyond setup: Drive refreshes its OAuth token and writes it back, so
+getting this wrong breaks the backup every night, not just once.
 
 ```bash
-ssh pi@100.118.255.23 'sudo install -o pi -g pi -m 0600 /dev/null /opt/portfolio/rclone.conf'
-ssh -t pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf config'
+ssh pi@100.118.255.23 'sudo install -d -o pi -g pi -m 0700 /opt/portfolio/rclone.d'
+ssh -t pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.d/rclone.conf config'
 ```
 
 Pick `s3` and give it an access key with write access to one bucket. Then:
@@ -102,9 +107,13 @@ S3 does not do:
   days. At ~60KB a copy this is a rounding error; add
   `--drive-use-trash=false` to the prune if it ever matters.
 
-rclone's built-in Drive client ID is shared and rate-limited. At one 60KB upload
-a night that is fine; if you ever see quota errors, create your own OAuth client
-ID (rclone's docs cover it).
+> **Deadline: make your own OAuth client ID during 2026.** rclone warns on every
+> Drive run that its shared client ID "is being retired and will stop working
+> during 2026". When it goes, uploads fail and the backup stops. Creating your
+> own is a few minutes in the Google Cloud console —
+> <https://rclone.org/drive/#making-your-own-client-id> — then re-run
+> `rclone authorize "drive" --drive-scope=drive.file` with
+> `--drive-client-id`/`--drive-client-secret` and replace the token.
 
 ### 4. Write the config and run it
 

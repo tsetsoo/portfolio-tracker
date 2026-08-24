@@ -26,6 +26,10 @@ fi
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-update.sh" /opt/portfolio/portfolio-update.sh
 install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-container.sh
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-backup.sh" /opt/portfolio/portfolio-backup.sh
+# pi-owned, because rclone writes a temp file beside its config when saving —
+# including on every OAuth token refresh, so a root-owned parent breaks the
+# backup nightly rather than only at setup.
+install -d -o pi -g pi -m 0700 /opt/portfolio/rclone.d
 install -m 0644 "$REPO_DIR/portfolio.service" /etc/systemd/system/portfolio.service
 install -m 0644 "$REPO_DIR/portfolio-update.service" /etc/systemd/system/portfolio-update.service
 install -m 0644 "$REPO_DIR/portfolio-update.timer" /etc/systemd/system/portfolio-update.timer

@@ -25,7 +25,11 @@ CONFIG="${PORTFOLIO_BACKUP_CONFIG:-/etc/portfolio-backup.env}"
 DB="${DB:-/opt/portfolio/data/portfolio.db}"
 LOCAL_DIR="${LOCAL_DIR:-/opt/portfolio/data/backups}"
 RCLONE="${RCLONE:-/opt/portfolio/bin/rclone}"
-RCLONE_CONFIG_FILE="${RCLONE_CONFIG_FILE:-/opt/portfolio/rclone.conf}"
+# In a directory pi owns, not /opt/portfolio, which is root-owned. rclone saves
+# config by writing a temp file *beside* it and renaming, so a pi-writable file
+# in a root-owned directory is not enough — and Drive refreshes its token and
+# writes it back on a schedule, so this would fail nightly, not just at setup.
+RCLONE_CONFIG_FILE="${RCLONE_CONFIG_FILE:-/opt/portfolio/rclone.d/rclone.conf}"
 REMOTE="${REMOTE:-}"                  # rclone remote:path, e.g. s3:my-bucket/portfolio
 GPG_RECIPIENT="${GPG_RECIPIENT:-}"    # fingerprint of the backup PUBLIC key
 KEEP_LOCAL="${KEEP_LOCAL:-14}"
