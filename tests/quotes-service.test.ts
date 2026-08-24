@@ -335,11 +335,17 @@ describe("quote service cache", () => {
       stale: false,
       fetchedAt: "2026-07-25T12:00:00.000Z",
     });
+    // price_cache is keyed (symbol, asset_class, currency), so the stale USD
+    // row from the setup insert can still be present alongside the new EUR
+    // row (see "caches the same symbol in two currencies without evicting
+    // either" below). Filter on currency explicitly rather than relying on
+    // row order, so this asserts what a EUR-preferring caller actually gets:
+    // the freshly fetched EUR quote.
     expect(
       db
         .prepare(
           `SELECT price, currency FROM price_cache
-           WHERE symbol = 'GRID' AND asset_class = 'equity'`,
+           WHERE symbol = 'GRID' AND asset_class = 'equity' AND currency = 'EUR'`,
         )
         .get(),
     ).toEqual({ price: 54.47, currency: "EUR" });
