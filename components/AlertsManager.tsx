@@ -63,6 +63,26 @@ export function nextFormAfterCreate(
   return result.ok ? EMPTY_FORM : current;
 }
 
+/**
+ * The next form state after the user switches alert kind. `direction` is
+ * always reset to the new kind's default, never carried over from the old
+ * one: threshold takes only `above`/`below` and percent_move only takes
+ * `up`/`down`/`either`, so a direction valid for the old kind can be invalid
+ * for the new one and would fail the SQL CHECK on submit. This used to be
+ * guaranteed by remounting the direction `<select>` with `key={kind}`; that
+ * remount is gone, so this reset is what preserves the guarantee now.
+ */
+export function nextFormAfterKindChange(
+  current: FormState,
+  nextKind: CreateAlertInput["kind"],
+): FormState {
+  return {
+    ...current,
+    kind: nextKind,
+    direction: DEFAULT_DIRECTION[nextKind],
+  };
+}
+
 function buildCreateAlertInput(form: FormState): CreateAlertInput {
   const cooldownRaw = form.cooldownMinutes.trim();
   const input: CreateAlertInput = {
@@ -166,11 +186,7 @@ export function AlertsManager({
   }
 
   function changeKind(nextKind: CreateAlertInput["kind"]) {
-    setForm((current) => ({
-      ...current,
-      kind: nextKind,
-      direction: DEFAULT_DIRECTION[nextKind],
-    }));
+    setForm((current) => nextFormAfterKindChange(current, nextKind));
   }
 
   function run(action: () => Promise<string | void>) {

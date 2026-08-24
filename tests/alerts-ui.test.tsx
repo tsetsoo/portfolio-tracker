@@ -13,6 +13,7 @@ import {
   describeStatus,
   formatInstantUtc,
   nextFormAfterCreate,
+  nextFormAfterKindChange,
 } from "@/components/AlertsManager";
 import type { PriceAlert } from "@/lib/alerts/types";
 
@@ -201,6 +202,44 @@ describe("AlertsManager", () => {
     expect(afterSuccess.symbol).toBe("");
     expect(afterSuccess.targetPrice).toBe("");
     expect(afterSuccess.label).toBe("");
+  });
+
+  it("nextFormAfterKindChange resets direction to a value valid for the new kind", () => {
+    // threshold -> percent_move: "below" is not a valid percent_move
+    // direction (only up/down/either are), so it must not survive the switch.
+    const fromThreshold = nextFormAfterKindChange(
+      {
+        symbol: "BTC",
+        assetClass: "crypto",
+        kind: "threshold",
+        direction: "below",
+        targetPrice: "100000",
+        percentWhole: "5",
+        cooldownMinutes: "1440",
+        label: "",
+      },
+      "percent_move",
+    );
+    expect(fromThreshold.kind).toBe("percent_move");
+    expect(["up", "down", "either"]).toContain(fromThreshold.direction);
+
+    // percent_move -> threshold: "up" is not a valid threshold direction
+    // (only above/below are), so it must not survive the switch either.
+    const fromPercent = nextFormAfterKindChange(
+      {
+        symbol: "ETH",
+        assetClass: "crypto",
+        kind: "percent_move",
+        direction: "up",
+        targetPrice: "",
+        percentWhole: "5",
+        cooldownMinutes: "1440",
+        label: "",
+      },
+      "threshold",
+    );
+    expect(fromPercent.kind).toBe("threshold");
+    expect(["above", "below"]).toContain(fromPercent.direction);
   });
 
   it("shows both Disabled and the error for a disabled alert with a lastError", () => {
