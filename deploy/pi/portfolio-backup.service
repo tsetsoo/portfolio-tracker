@@ -13,3 +13,11 @@ ExecStart=/opt/portfolio/portfolio-backup.sh
 # A silent backup failure is worse than no backup, so let a non-zero exit stand
 # and surface in `journalctl -u portfolio-backup`. Same precedent as
 # portfolio-snapshot.service.
+#
+# Type=oneshot defaults TimeoutStartSec to infinity, which would let a wedged
+# docker daemon park this unit in "activating" forever: never logged as failed,
+# and the next night's timer elapse merged into the stuck job, so backups would
+# stop silently. That is the failure this unit exists to make loud. The budget
+# covers the script's own worst case — COPY_ATTEMPTS(3) x CONTAINER_WAIT(120)
+# plus the retry delays, about 7 minutes — with room to spare.
+TimeoutStartSec=900

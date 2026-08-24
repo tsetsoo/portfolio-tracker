@@ -27,6 +27,12 @@ CONTAINER_WAIT="${CONTAINER_WAIT:-120}"
 # A deploy mid-copy kills the docker exec, so do not give up on the first try.
 COPY_ATTEMPTS="${COPY_ATTEMPTS:-3}"
 RETRY_DELAY="${RETRY_DELAY:-30}"
+# Every docker call is bounded. A wedged docker daemon is a routine Pi failure
+# and an unbounded `docker exec` would hang the unit in "activating" forever —
+# never logged as failed, with the next night's run merged into the stuck job.
+# Same reasoning as portfolio-snapshot.service's `curl --max-time`.
+PROBE_TIMEOUT="${PROBE_TIMEOUT:-15}"
+COPY_TIMEOUT="${COPY_TIMEOUT:-300}"
 
 log() { echo "portfolio-backup: $*"; }
 die() { echo "portfolio-backup: $*" >&2; exit 1; }
@@ -40,11 +46,20 @@ die() { echo "portfolio-backup: $*" >&2; exit 1; }
 # comparison below instead of yielding a mangled "/data//opt/..." path.
 DATA_DIR="${DATA_DIR%/}"
 BACKUP_DIR="${BACKUP_DIR%/}"
+
+# run-container.sh hardcodes the mount as "$PORTFOLIO_ROOT/data:/data", so /data
+# inside the container is always that directory no matter what DATA_DIR says.
+# Pointing DATA_DIR elsewhere used to look supported while actually reading the
+# production database and writing a staging file into the production backups —
+# a dry run that quietly touched live data. Refuse it instead.
+if [[ "$DATA_DIR" != "$PORTFOLIO_ROOT/data" ]]; then
+  die "PORTFOLIO_DATA_DIR ($DATA_DIR) must be \$PORTFOLIO_ROOT/data ($PORTFOLIO_ROOT/data) — the container mount is fixed by run-container.sh, so any other value would read the live database while validating a different file"
+fi
 case "$BACKUP_DIR" in
   "$DATA_DIR"/?*) C_BACKUP="/data/${BACKUP_DIR#"$DATA_DIR"/}" ;;
   *) die "PORTFOLIO_BACKUP_DIR ($BACKUP_DIR) must be a directory strictly under PORTFOLIO_DATA_DIR ($DATA_DIR) — the container only has that mount" ;;
 esac
-C_DB="/data/$(basename "$DATA_DIR/portfolio.db")"
+C_DB="/data/portfolio.db"
 
 # Local time, not UTC, so the filename's date matches the newest snapshot date
 # inside the file — otherwise a restore reaches for the wrong day. That holds
@@ -60,13 +75,16 @@ month="$(date +%Y-%m)"
 name="portfolio-$stamp.db"
 
 mkdir -p "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly" "$BACKUP_DIR/archive"
+# 0700, not the umask default of 0755: these hold the financial database in the
+# clear on a host shared with pihole, homebridge, nginx and uwsgi.
+chmod 0700 "$BACKUP_DIR" "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly" "$BACKUP_DIR/archive"
 
 [[ -f "$DATA_DIR/portfolio.db" ]] || die "no live database at $DATA_DIR/portfolio.db"
 
 # --- wait for the container -------------------------------------------------
 wait_for_container() {
   local waited=0
-  until "$DOCKER" exec "$CONTAINER" true >/dev/null 2>&1; do
+  until timeout "$PROBE_TIMEOUT" "$DOCKER" exec "$CONTAINER" true >/dev/null 2>&1; do
     if (( waited >= CONTAINER_WAIT )); then
       die "container '$CONTAINER' not exec-able after ${CONTAINER_WAIT}s; no sqlite available to make a consistent copy"
     fi
@@ -94,7 +112,15 @@ cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging"; }
 # otherwise leave the staging file behind, and being a dotfile it is invisible
 # to every *.db glob here — including prune — so orphans would accumulate on the
 # SD card indefinitely without ever being rotated out.
-trap cleanup_staging EXIT INT TERM
+#
+# The INT/TERM handler must exit, not just clean up: a bash trap returns to
+# where it was interrupted, so without the exit a SIGTERM would delete the
+# staging file and then carry on — treating the killed docker exec as a failed
+# attempt, retrying, creating a second staging file, and possibly publishing a
+# backup while systemd waited out TimeoutStopSec and then SIGKILLed it, leaving
+# exactly the orphan this trap is supposed to prevent.
+trap cleanup_staging EXIT
+trap 'cleanup_staging; exit 143' INT TERM
 
 # Sweep any staging files a previous hard kill left behind, for the same reason.
 shopt -s nullglob dotglob
@@ -112,9 +138,14 @@ fi
 # is legitimate — only a count outside that range means we captured something
 # that was never in the database.
 copy_and_verify() {
-  "$DOCKER" exec "$CONTAINER" node -e '
+  timeout "$COPY_TIMEOUT" "$DOCKER" exec "$CONTAINER" node -e '
 const D = require("/app/node_modules/better-sqlite3");
-const TABLES = ["holdings", "lots", "snapshots", "import_batches"];
+// The tables whose loss actually hurts. holdings and lots can be rebuilt from
+// broker CSVs; snapshots, the wallet tables and settings are hand-entered or
+// unbackfillable, so they are the ones worth asserting on. price_cache and the
+// fx tables are omitted deliberately — they are caches that refill themselves.
+const TABLES = ["holdings", "lots", "snapshots", "import_batches",
+                "wallets", "wallet_addresses", "wallet_transfers", "settings"];
 const dest = process.argv[1];
 const src = process.argv[2];
 const counts = (db) => Object.fromEntries(
@@ -144,7 +175,14 @@ live.backup(dest).then(() => {
     throw new Error("row counts outside the live range: " + bad
       .map((t) => t + " copy=" + got[t] + " live=" + before[t] + ".." + after[t]).join(", "));
   }
-  if (got.holdings === 0) throw new Error("copy has zero holdings; refusing to keep it");
+  // No separate "zero holdings" guard. An absolute one rejected every copy
+  // forever on a legitimately empty portfolio (fresh install, or after a
+  // reset), and a version relative to the live counts turned out to be dead
+  // code: the range check above already rejects a copy that lost rows the live
+  // database still has — verified, it reports
+  // "holdings copy=0 live=20..20". The only case the extra guard would have
+  // caught alone is holdings dropping to 0 *during* the copy, where 0 is
+  // genuinely in range and rejecting it would discard a valid backup.
 
   // Newest snapshot date, so a drift between the filename date and what the
   // file actually contains (see the TZ note above) shows up in the journal.
@@ -186,6 +224,11 @@ size="$(wc -c < "$BACKUP_DIR/daily/$staging" | tr -d ' ')"
 # Verified. Publish it under its real name; from here it is a backup.
 mv "$BACKUP_DIR/daily/$staging" "$BACKUP_DIR/daily/$name"
 trap - EXIT INT TERM
+# The database in the clear. This host also runs pihole, homebridge, nginx and
+# uwsgi, so leaving it 0644 would let every local account read the full
+# financial history — while the offsite half goes to real trouble to encrypt the
+# same bytes before they leave the box.
+chmod 0600 "$BACKUP_DIR/daily/$name"
 log "wrote daily/$name ($size bytes)"
 
 # --- promote the first backup of the month ---------------------------------

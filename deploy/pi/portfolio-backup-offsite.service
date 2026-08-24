@@ -15,3 +15,10 @@ ExecStart=/opt/portfolio/portfolio-backup-offsite.sh
 #
 # Non-zero exits stand, so failures surface in `journalctl -u
 # portfolio-backup-offsite`.
+#
+# Bounded for the same reason as portfolio-backup.service: Type=oneshot would
+# otherwise default to infinity and a hung network or docker call would leave
+# the unit activating forever rather than failing. This has to exceed
+# BACKUP_WAIT (900s, the time it will wait for a running local backup) plus the
+# encrypt, upload and read-back.
+TimeoutStartSec=1800

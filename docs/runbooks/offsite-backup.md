@@ -120,6 +120,7 @@ sudo tee /etc/portfolio-backup-offsite.env >/dev/null <<EOF
 OFFSITE_REMOTE="offsite:your-bucket/portfolio"
 GPG_RECIPIENT="<the fingerprint from step 1>"
 OFFSITE_KEEP=30
+OFFSITE_KEEP_MONTHLY=12
 EOF
 sudo chmod 0644 /etc/portfolio-backup-offsite.env
 ```
@@ -135,10 +136,25 @@ sudo systemctl enable --now portfolio-backup-offsite.timer
 A good run looks like:
 
 ```
-offsite: encrypted portfolio-2026-08-22-003020.db (397312 -> 60591 bytes) for <FPR>
-offsite: verified read-back sha256 8e32aa06d6b79b0c…
-offsite: ok — portfolio-2026-08-22-003020.db.gpg at offsite:your-bucket/portfolio (1 kept)
+offsite: newest local backup portfolio-2026-08-24-003137.db is 10h old
+offsite: pushed daily portfolio-2026-08-24-003137.db.gpg (421888 -> 61942 bytes, sha256 e6cf5646f5b04b59…)
+offsite: daily: 3 kept
+offsite: pushed monthly portfolio-2026-08-23-094534.db.gpg (413696 -> 61941 bytes, sha256 03ab2d05ba308d9d…)
+offsite: monthly: 1 kept
+offsite: ok — offsite:your-bucket/portfolio
 ```
+
+The remote mirrors the Pi — `daily/` and `monthly/` under `$OFFSITE_REMOTE`.
+The monthlies go off-device too: keeping them only as hardlinks on the SD card
+whose failure this whole feature exists to survive would defeat the reason for
+having them. Only monthlies not already at the far end are uploaded, so after
+the first run this is one extra listing a night and a real upload about once a
+month.
+
+The age line exists because `MAX_AGE_HOURS` deliberately tolerates one missed
+local backup. Without it, re-pushing yesterday's file under a name that already
+exists looks identical to a fresh push — the object is overwritten, the count
+does not grow, and the run still ends in `ok`.
 
 The push does not trust rclone's exit code: it lists the object at the far end,
 compares the size, then reads the bytes back and compares a sha256. The failure
@@ -152,8 +168,14 @@ Run the drill from the Mac, where the private key lives — the Pi cannot do thi
 OFFSITE_REMOTE="offsite:your-bucket/portfolio" ./deploy/restore-offsite.sh
 ```
 
-It fetches the newest object, decrypts it, and refuses anything that is not a
-SQLite database passing `integrity_check`. It prints row counts and the latest
+It fetches the newest `daily/` object, decrypts it, and refuses anything that is
+not a SQLite database passing `integrity_check`. A bare filename is looked for
+in both tiers; to go further back, name a monthly explicitly:
+
+```bash
+OFFSITE_REMOTE="offsite:your-bucket/portfolio" \
+  ./deploy/restore-offsite.sh monthly/portfolio-2026-07-01-003012.db.gpg
+``` It prints row counts and the latest
 snapshot date so you can see at a glance how current the copy is.
 
 **Do this occasionally, not just in an emergency.** A backup nobody has ever

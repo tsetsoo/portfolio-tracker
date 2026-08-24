@@ -9,9 +9,10 @@ set -euo pipefail
 # A backup nobody has ever restored is a hypothesis. Run this occasionally, and
 # certainly before you ever need it for real.
 #
-#   ./deploy/restore-offsite.sh                        # newest from the remote
+#   ./deploy/restore-offsite.sh                          # newest daily
 #   ./deploy/restore-offsite.sh portfolio-2026-08-22-003020.db.gpg
-#   ./deploy/restore-offsite.sh ~/Downloads/some.db.gpg  # a local file
+#   ./deploy/restore-offsite.sh monthly/portfolio-2026-07-01-003012.db.gpg
+#   ./deploy/restore-offsite.sh ~/Downloads/some.db.gpg   # a local file
 #
 # Env: OFFSITE_REMOTE (rclone remote:path), RESTORE_DIR (default ./data/restore)
 
@@ -34,6 +35,9 @@ else
   command -v "$RCLONE" >/dev/null || die "rclone not found (brew install rclone), or pass a local .gpg path"
   [[ -n "$OFFSITE_REMOTE" ]] || die "set OFFSITE_REMOTE to the rclone remote:path holding the backups"
 
+  # The remote mirrors the Pi: daily/ holds the rolling copies, monthly/ the
+  # long tail. A bare filename is looked for in both; "monthly/<name>" targets
+  # one explicitly.
   name="$arg"
   if [[ -z "$name" ]]; then
     # Names are portfolio-YYYY-MM-DD-HHMMSS.db.gpg, so lexical order is
@@ -41,11 +45,22 @@ else
     # `|| true` so an empty remote reaches the die below with an explanation,
     # rather than pipefail killing the script silently — this is the script you
     # reach for in an emergency, so it has to say what is wrong.
-    name="$("$RCLONE" lsf "$OFFSITE_REMOTE" | grep '\.db\.gpg$' | sort | tail -1 || true)"
-    [[ -n "$name" ]] || die "no .db.gpg objects at $OFFSITE_REMOTE"
+    name="daily/$("$RCLONE" lsf "$OFFSITE_REMOTE/daily" | grep '\.db\.gpg$' | sort | tail -1 || true)"
+    [[ "$name" != "daily/" ]] || die "no .db.gpg objects at $OFFSITE_REMOTE/daily (has the offsite push run? see docs/runbooks/offsite-backup.md)"
     echo "restore: newest is $name"
+  elif [[ "$name" != */* ]]; then
+    found=""
+    for tier in daily monthly; do
+      if "$RCLONE" lsf "$OFFSITE_REMOTE/$tier" 2>/dev/null | grep -qxF "$name"; then
+        found="$tier/$name"
+        break
+      fi
+    done
+    [[ -n "$found" ]] || die "$name is in neither $OFFSITE_REMOTE/daily nor $OFFSITE_REMOTE/monthly"
+    name="$found"
+    echo "restore: found $name"
   fi
-  enc="$RESTORE_DIR/$name"
+  enc="$RESTORE_DIR/$(basename "$name")"
   "$RCLONE" copyto "$OFFSITE_REMOTE/$name" "$enc"
 fi
 
