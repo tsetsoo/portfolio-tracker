@@ -71,6 +71,41 @@ Pick `s3` and give it an access key with write access to one bucket. Then:
 ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf lsd s3:'
 ```
 
+#### Google Drive instead of S3
+
+Works the same — `REMOTE` is just an rclone path, so nothing in the script
+changes. But Drive uses OAuth, and the Pi has no browser, so authorise on the
+Mac and carry the token over:
+
+```bash
+brew install rclone          # also needed for the restore drill below
+rclone authorize "drive"     # opens a browser, prints a token blob
+```
+
+Then on the Pi run `rclone config`, choose `drive`, accept the default scope,
+and when it asks **"Use auto config?" answer `n`** — that is the headless path —
+then paste the token from the Mac. Check it:
+
+```bash
+ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf lsd drive:'
+```
+
+Set `REMOTE="drive:portfolio-backups"` in step 4. Three Drive-specific things
+S3 does not do:
+
+- **The token is refreshed in place**, so `/opt/portfolio/rclone.conf` has to
+  stay writable by `pi` (it is, if you created it as in step 3). Make it
+  root-owned and Drive backups break in a way S3 credentials would not.
+- **Tokens can be revoked** — a password change or long inactivity — and then
+  backups fail nightly until you re-authorise. S3 access keys do not expire.
+- **Pruned files go to Drive's trash** and still count against quota for 30
+  days. At ~60KB a copy this is a rounding error; add
+  `--drive-use-trash=false` to the prune if it ever matters.
+
+rclone's built-in Drive client ID is shared and rate-limited. At one 60KB upload
+a night that is fine; if you ever see quota errors, create your own OAuth client
+ID (rclone's docs cover it).
+
 ### 4. Write the config and run it
 
 ```bash
