@@ -2,11 +2,15 @@
 
 Written 2026-08-21. Nothing has been built yet; this is the brief.
 
-> **Actioned 2026-08-22.** The on-device half is built, deployed and running:
-> `portfolio-backup.timer` takes a verified, rotated daily copy. The encrypted
-> off-device push is built and tested end to end but is **not enabled**, because
-> it needs a storage account and an encryption key. The owner picked *encrypted
-> push to cloud* and confirmed 14 daily + 12 monthly retention.
+> **Actioned 2026-08-22, live 2026-08-24.** `portfolio-backup.timer` takes a
+> verified daily copy, encrypts it to a public key and uploads it to Google
+> Drive; a restore has been run back from Drive to a verified database. The
+> owner picked *encrypted push to cloud*.
+>
+> Retention as shipped is **14 local dailies + 365 remote dailies**, not the
+> 14 daily + 12 monthly discussed here. A year of dailies is ~20MB encrypted —
+> cheaper than a monthly tier and a longer tail, with no tiering code to get
+> wrong.
 >
 > One correction to the text below: it says the live data directory held **13**
 > ad-hoc copies. It held **12** — eleven `portfolio.pre-*.db` plus one

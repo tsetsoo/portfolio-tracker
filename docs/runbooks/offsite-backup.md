@@ -73,7 +73,7 @@ ssh -t pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclo
 Pick `s3` and give it an access key with write access to one bucket. Then:
 
 ```bash
-ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf lsd s3:'
+ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.d/rclone.conf lsd s3:'
 ```
 
 #### Google Drive instead of S3
@@ -84,21 +84,33 @@ Mac and carry the token over:
 
 ```bash
 brew install rclone          # also needed for the restore drill below
-rclone authorize "drive"     # opens a browser, prints a token blob
+rclone authorize "drive" --drive-scope=drive.file
 ```
 
-Then on the Pi run `rclone config`, choose `drive`, accept the default scope,
-and when it asks **"Use auto config?" answer `n`** — that is the headless path —
-then paste the token from the Mac. Check it:
+`drive.file` matters: it limits the token to files rclone itself created, so
+these credentials cannot read the rest of your Drive. Verify afterwards with
+`rclone lsd drive:` from the Mac — run against your Drive *root*, it should list
+only the backups folder.
+
+Then create the remote on the Pi with that token. Note the explicit binary path
+(rclone is not on `pi`'s `PATH`) and `--config` (without it rclone writes to
+`~/.config/rclone/`, which the backup never reads):
 
 ```bash
-ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.conf lsd drive:'
+ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.d/rclone.conf \
+  config create drive drive scope=drive.file token='"'"'<PASTE THE TOKEN JSON>'"'"' --non-interactive'
+```
+
+Check it:
+
+```bash
+ssh pi@100.118.255.23 '/opt/portfolio/bin/rclone --config /opt/portfolio/rclone.d/rclone.conf lsd drive:'
 ```
 
 Set `REMOTE="drive:portfolio-backups"` in step 4. Three Drive-specific things
 S3 does not do:
 
-- **The token is refreshed in place**, so `/opt/portfolio/rclone.conf` has to
+- **The token is refreshed in place**, so `/opt/portfolio/rclone.d/` has to
   stay writable by `pi` (it is, if you created it as in step 3). Make it
   root-owned and Drive backups break in a way S3 credentials would not.
 - **Tokens can be revoked** — a password change or long inactivity — and then

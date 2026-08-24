@@ -9,9 +9,9 @@ set -euo pipefail
 DEST="${RCLONE_DEST:-/opt/portfolio/bin}"
 ARCH="${RCLONE_ARCH:-linux-arm-v7}"
 # Pinned, not "whatever version.txt says today". Two Pis bootstrapped a month
-# apart should get the same binary, and portfolio-backup-offsite.sh filters a
-# log string specific to this build — a silent upgrade could restore the ~18
-# lines of ERROR noise that filter exists to suppress. Bump deliberately.
+# apart should get the same binary, and portfolio-backup.sh filters a log string
+# specific to this build — a silent upgrade could restore the ~18 lines of ERROR
+# noise that filter exists to suppress. Bump deliberately.
 ver="${RCLONE_VERSION:-v1.75.0}"
 [[ "$ver" =~ ^v[0-9]+\.[0-9]+ ]] || { echo "bad rclone version '$ver'" >&2; exit 1; }
 
@@ -49,12 +49,17 @@ bin="$(find "$work/x" -name rclone -type f | head -1)"
 install -d -o root -g root -m 0755 "$DEST"
 install -o root -g root -m 0755 "$bin" "$DEST/rclone"
 
+# Actually run it, and let a failure stand: a wrong-architecture or truncated
+# binary would otherwise install "successfully" and first surface as a failed
+# backup at 00:30 the next night.
+"$DEST/rclone" version >/dev/null 2>&1 \
+  || { echo "install-rclone: $DEST/rclone does not run on this host" >&2; exit 1; }
+
 # Note: this build prints harmless "no overview data found for <provider>"
-# errors on every run; portfolio-backup-offsite.sh filters them so they cannot
-# bury a real failure in the journal.
+# errors on every run; portfolio-backup.sh filters them so they cannot bury a
+# real failure in the journal.
 #
-# `|| true`: rclone writes more lines than head wants, so head closes the pipe
-# and Go takes SIGPIPE, making this pipeline exit 141 under pipefail. That would
-# fail a completely successful install — intermittently, depending on whether
-# head drains the output in one read.
+# `|| true` on the cosmetic print only: rclone writes more lines than head
+# wants, so head closes the pipe and Go takes SIGPIPE, making this pipeline exit
+# 141 under pipefail even though the install is fine.
 "$DEST/rclone" version 2>/dev/null | head -3 || true

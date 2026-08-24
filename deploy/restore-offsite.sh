@@ -13,8 +13,18 @@ set -euo pipefail
 #
 # Env: REMOTE (rclone remote:path), RESTORE_DIR (default ./data/restore)
 
+# 0077: this writes the decrypted database in the clear. The Pi keeps the same
+# bytes at 0600 inside a 0700 directory; leaving the restored copy world-readable
+# on a shared machine would undo that.
+umask 077
+
 REMOTE="${REMOTE:-}"
-RESTORE_DIR="${RESTORE_DIR:-./data/restore}"
+# Anchored to the repo, not the current directory. A relative default wrote to
+# <cwd>/data/restore, and .gitignore's "data/restore/" is anchored to the repo
+# root — so running the drill from a subdirectory dropped a plaintext database
+# somewhere git would happily commit.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RESTORE_DIR="${RESTORE_DIR:-$REPO_ROOT/data/restore}"
 RCLONE="${RCLONE:-rclone}"
 
 die() { echo "restore: $*" >&2; exit 1; }

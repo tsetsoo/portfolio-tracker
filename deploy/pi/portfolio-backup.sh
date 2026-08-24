@@ -46,10 +46,27 @@ die() { echo "backup: $*" >&2; exit 1; }
 # verified local backup every night, rather than nothing at all. Configure
 # REMOTE and GPG_RECIPIENT to get the copy off the device — which is the point,
 # since a local copy dies with the SD card. See docs/runbooks/offsite-backup.md.
+#
+# Half-configured is an error, not a downgrade. Treating "either one missing" as
+# local-only meant a mistyped GPG_RECIPIENT — or a fingerprint pasted with a
+# space in it — produced a unit that succeeded every night while logging "no
+# REMOTE configured", which was a lie, and nothing ever left the SD card. That
+# is the silent success this script exists to avoid.
 upload=1
-if [[ -z "$REMOTE" || -z "$GPG_RECIPIENT" ]]; then
+if [[ -z "$REMOTE" && -z "$GPG_RECIPIENT" ]]; then
   upload=0
+elif [[ -z "$REMOTE" || -z "$GPG_RECIPIENT" ]]; then
+  die "half-configured in $CONFIG: REMOTE=${REMOTE:-<unset>} GPG_RECIPIENT=${GPG_RECIPIENT:-<unset>} — set both, or neither for local-only"
 fi
+
+# Retention has to be a positive integer. `head -n -0` prints every line, so
+# KEEP_REMOTE=0 — a common way to write "keep everything" — would delete every
+# backup at the far end including the one just uploaded; a non-numeric value
+# makes head fail and aborts the run after a successful upload.
+for _keep in KEEP_LOCAL KEEP_REMOTE; do
+  [[ "${!_keep}" =~ ^[1-9][0-9]*$ ]] \
+    || die "$_keep must be a positive integer, got '${!_keep}'"
+done
 
 if (( upload )); then
   [[ -x "$RCLONE" ]] || die "rclone not found at $RCLONE"
@@ -135,13 +152,20 @@ ls -1 "$LOCAL_DIR"/portfolio-*.db 2>/dev/null | sort | head -n "-$KEEP_LOCAL" \
 n_local="$(ls -1 "$LOCAL_DIR"/portfolio-*.db 2>/dev/null | wc -l | tr -d ' ' || true)"
 
 if (( upload )); then
-  remote_old="$(rc lsf "$REMOTE" | grep '^portfolio-.*\.db\.gpg$' | sort | head -n "-$KEEP_REMOTE" || true)"
-  if [[ -n "$remote_old" ]]; then
-    while read -r old; do
+  # Capture rclone's status separately from grep's. A blanket `|| true` here
+  # swallowed a failed listing — a rotated S3 key, a revoked Drive token, or a
+  # credential that can write but not list — leaving retention silently
+  # unenforced while the run logged "ok — N local, 0 remote" and exited 0.
+  remote_listing="$(rc lsf "$REMOTE")" \
+    || die "could not list $REMOTE — the upload succeeded but retention cannot be enforced"
+  mapfile -t remote_files < <(printf '%s\n' "$remote_listing" | grep '^portfolio-.*\.db\.gpg$' | sort || true)
+  n_remote=${#remote_files[@]}
+  if (( n_remote > KEEP_REMOTE )); then
+    for old in "${remote_files[@]:0:$(( n_remote - KEEP_REMOTE ))}"; do
       rc deletefile "$REMOTE/$old" || die "could not prune $old — remote retention is not being enforced"
-    done <<< "$remote_old"
+      n_remote=$(( n_remote - 1 ))
+    done
   fi
-  n_remote="$(rc lsf "$REMOTE" | grep -c '\.db\.gpg$' || true)"
   log "ok — $n_local local, $n_remote remote"
 else
   log "ok — $n_local local"
