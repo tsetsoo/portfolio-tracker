@@ -1,6 +1,12 @@
 const isoCurrencyCache = new Map<string, boolean>();
 
-function isIso4217Currency(code: string): boolean {
+/**
+ * Whether `code` is a real ISO-4217 fiat currency (as opposed to a crypto
+ * ticker or stablecoin symbol like USDT/CRO/BNB). Probes Intl.NumberFormat
+ * rather than maintaining our own currency list, and memoizes the result
+ * since the probe allocates a formatter.
+ */
+export function isFiatCurrency(code: string): boolean {
   const normalized = code.trim().toUpperCase();
   if (normalized === "") return false;
   const cached = isoCurrencyCache.get(normalized);
@@ -26,7 +32,7 @@ function isIso4217Currency(code: string): boolean {
 export function formatMoney(value: number, currency: string): string {
   const code = currency.trim().toUpperCase() || "USD";
 
-  if (isIso4217Currency(code)) {
+  if (isFiatCurrency(code)) {
     return new Intl.NumberFormat("en", {
       style: "currency",
       currency: code,
