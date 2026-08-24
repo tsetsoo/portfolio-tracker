@@ -44,6 +44,20 @@ function readBaseCurrency(db: Database.Database): string {
   ).base_currency;
 }
 
+/**
+ * fetchCoinGeckoQuotes only ever requests vs_currencies=eur,usd, so those
+ * are the only currencies a crypto quote can actually be fetched or cached
+ * in. A caller's preferredCurrency is honoured only when it names one of
+ * the two; anything else (a lot's quote_currency, which is sometimes a
+ * stablecoin or another crypto token, not a real vs_currency CoinGecko can
+ * price against) is treated the same as no preference at all — the
+ * historic "whatever is cached" behaviour.
+ */
+function cryptoCurrencyOrUndefined(raw: string | undefined): string | undefined {
+  const upper = raw?.trim().toUpperCase();
+  return upper === "EUR" || upper === "USD" ? upper : undefined;
+}
+
 export function createQuoteService(
   db: Database.Database,
   fetchImpl: typeof fetch,
@@ -141,9 +155,11 @@ export function createQuoteService(
     const result = new Map<string, Quote>();
     if (symbols.length === 0) return result;
 
+    const requestedCurrency = cryptoCurrencyOrUndefined(opts?.preferredCurrency);
+
     const missing: string[] = [];
     for (const symbol of symbols) {
-      const cached = readQuote(symbol, "crypto");
+      const cached = readQuote(symbol, "crypto", requestedCurrency);
       if (cached && !opts?.force && (opts?.cacheOnly || isFresh(cached.fetched_at))) {
         result.set(symbol, {
           price: cached.price,
@@ -173,7 +189,7 @@ export function createQuoteService(
     );
     if (supportedMissing.length === 0) return result;
 
-    const baseCurrency = readBaseCurrency(db);
+    const baseCurrency = requestedCurrency ?? readBaseCurrency(db);
     let fetched: Map<string, { price: number; currency: string }>;
     try {
       fetched = await fetchCoinGeckoQuotes(
@@ -183,7 +199,7 @@ export function createQuoteService(
       );
     } catch {
       for (const symbol of missing) {
-        const cached = readQuote(symbol, "crypto");
+        const cached = readQuote(symbol, "crypto", requestedCurrency);
         if (cached) {
           result.set(symbol, {
             price: cached.price,
