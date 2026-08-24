@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { SidebarNav } from "@/components/SidebarNav";
 import {
+  BellIcon,
   HomeIcon,
   ImportIcon,
   LayersIcon,
@@ -14,6 +15,7 @@ const links = [
   { href: "/", label: "Home", icon: <HomeIcon /> },
   { href: "/holdings", label: "Holdings", icon: <LayersIcon /> },
   { href: "/wallets", label: "Wallets", icon: <WalletIcon /> },
+  { href: "/alerts", label: "Alerts", icon: <BellIcon /> },
   { href: "/import", label: "Import", icon: <ImportIcon /> },
   { href: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
@@ -30,7 +32,7 @@ const SIDEBAR_NAV =
   "[&[data-pending=true]>a]:opacity-50";
 
 const TAB_NAV =
-  "grid grid-cols-5 " +
+  "grid grid-cols-6 " +
   "[&>a]:flex [&>a]:flex-col [&>a]:items-center [&>a]:gap-1 [&>a]:py-2.5 " +
   "[&>a]:text-[10px] [&>a]:font-medium [&>a]:text-faint [&>a]:transition-colors [&>a]:duration-150 " +
   "[&>a[aria-current=page]]:text-text " +

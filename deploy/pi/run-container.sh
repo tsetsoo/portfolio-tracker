@@ -54,6 +54,12 @@ docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 TZ_NAME="$(cat /etc/timezone 2>/dev/null || true)"
 : "${TZ_NAME:=Etc/UTC}"
 
+# Secrets live outside releases/ so a deploy never overwrites them.
+ENV_FILE_ARGS=()
+if [[ -f "$ROOT/portfolio.env" ]]; then
+  ENV_FILE_ARGS=(--env-file "$ROOT/portfolio.env")
+fi
+
 echo "starting $IMAGE from $APP_DIR on :$PORT (TZ $TZ_NAME)"
 exec docker run --rm --name "$CONTAINER" \
   --init \
@@ -64,6 +70,7 @@ exec docker run --rm --name "$CONTAINER" \
   --env HOSTNAME=0.0.0.0 \
   --env PORT="$PORT" \
   --env DATABASE_PATH=/data/portfolio.db \
+  "${ENV_FILE_ARGS[@]}" \
   --volume "$APP_DIR:/app" \
   --volume "$ROOT/data:/data" \
   --workdir /app \

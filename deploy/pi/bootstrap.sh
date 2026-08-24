@@ -17,6 +17,17 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 install -d -o root -g root -m 0755 /opt/portfolio /opt/portfolio/releases
 install -d -o pi -g pi -m 0755 /opt/portfolio/data
+
+# Template for secrets (Telegram bot token). Not overwritten if it exists.
+if [[ ! -f /opt/portfolio/portfolio.env ]]; then
+  cat > /opt/portfolio/portfolio.env <<'EOF'
+# TELEGRAM_BOT_TOKEN=
+# TELEGRAM_CHAT_ID=
+EOF
+  chown pi:pi /opt/portfolio/portfolio.env
+  chmod 0600 /opt/portfolio/portfolio.env
+fi
+
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-update.sh" /opt/portfolio/portfolio-update.sh
 install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-container.sh
 install -m 0644 "$REPO_DIR/portfolio.service" /etc/systemd/system/portfolio.service
