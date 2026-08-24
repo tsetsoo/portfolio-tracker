@@ -33,6 +33,8 @@ install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-
 install -m 0644 "$REPO_DIR/portfolio.service" /etc/systemd/system/portfolio.service
 install -m 0644 "$REPO_DIR/portfolio-update.service" /etc/systemd/system/portfolio-update.service
 install -m 0644 "$REPO_DIR/portfolio-update.timer" /etc/systemd/system/portfolio-update.timer
+install -m 0644 "$REPO_DIR/portfolio-snapshot.service" /etc/systemd/system/portfolio-snapshot.service
+install -m 0644 "$REPO_DIR/portfolio-snapshot.timer" /etc/systemd/system/portfolio-snapshot.timer
 
 systemctl daemon-reload
 
@@ -45,5 +47,6 @@ fi
 /opt/portfolio/portfolio-update.sh || echo "first pull deferred until pi-latest exists"
 systemctl enable --now portfolio.service || true
 systemctl enable --now portfolio-update.timer
+systemctl enable --now portfolio-snapshot.timer
 systemctl status portfolio.service --no-pager || true
-systemctl list-timers portfolio-update.timer --no-pager
+systemctl list-timers 'portfolio-*.timer' --no-pager

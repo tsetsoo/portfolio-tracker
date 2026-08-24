@@ -1,0 +1,18 @@
+[Unit]
+Description=Record a portfolio snapshot once a day
+
+[Timer]
+# ensureTodaySnapshot is first-write-wins per date, so run early: whatever is
+# recorded first that day is what the history keeps. Firing shortly after
+# midnight makes the series consistently "first valuation of the day" instead of
+# "whenever the dashboard happened to be opened".
+OnCalendar=*-*-* 00:10
+# Catch up after downtime — records the day it actually runs, since past-day
+# prices cannot be reconstructed.
+Persistent=true
+RandomizedDelaySec=300
+AccuracySec=1min
+Unit=portfolio-snapshot.service
+
+[Install]
+WantedBy=timers.target

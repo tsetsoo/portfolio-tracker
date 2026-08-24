@@ -1,0 +1,9 @@
+[Unit]
+Description=Record today's portfolio net-worth snapshot
+After=portfolio.service
+Wants=portfolio.service
+
+[Service]
+Type=oneshot
+# Fresh quotes on a Pi 3 can take a while; fail rather than hang forever.
+ExecStart=/usr/bin/curl -fsS --max-time 240 -X POST http://127.0.0.1:8081/api/snapshot
