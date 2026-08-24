@@ -1,27 +1,19 @@
 [Unit]
-Description=Back up the portfolio database (consistent copy, verified, rotated)
-After=portfolio.service docker.service
-Wants=portfolio.service
+Description=Back up the portfolio database and push it off the device
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-# pi owns /opt/portfolio/data and is in the docker group, which is all this
-# needs — the copy is made by the app container, not by root.
+# pi owns the data directory; nothing here needs root.
 User=pi
 Group=pi
 ExecStart=/opt/portfolio/portfolio-backup.sh
-# A silent backup failure is worse than no backup, so let a non-zero exit stand
-# and surface in `journalctl -u portfolio-backup`. Same precedent as
-# portfolio-snapshot.service.
+# Non-zero exits stand, so failures surface in `journalctl -u portfolio-backup`.
+# A silent backup failure is worse than no backup.
 #
-# Type=oneshot defaults TimeoutStartSec to infinity, which would let a wedged
-# docker daemon park this unit in "activating" forever: never logged as failed,
-# and the next night's timer elapse merged into the stuck job, so backups would
-# stop silently. That is the failure this unit exists to make loud.
-#
-# This has to exceed the script's real worst case, or systemd SIGTERMs it
-# mid-retry, COPY_ATTEMPTS is never honoured, and the script's own explanatory
-# failure never reaches the journal. That worst case is
-# COPY_ATTEMPTS(3) x (CONTAINER_WAIT(120) + COPY_TIMEOUT(120)) plus two
-# RETRY_DELAY(30) gaps = 780s. Keep this above that if those knobs change.
-TimeoutStartSec=1200
+# Type=oneshot defaults TimeoutStartSec to infinity, which would let a hung
+# network call park this unit in "activating" forever: never logged as failed,
+# with the next night's timer elapse merged into the stuck job. The work itself
+# is a two-second copy and a 60KB upload, so this is pure backstop.
+TimeoutStartSec=600
