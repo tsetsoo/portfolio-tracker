@@ -150,4 +150,77 @@ describe("migrate", () => {
     expect(eth.chain).toBe("eth");
     db.close();
   });
+
+  it("rebuilds price_cache to key on currency on an old-shape database", () => {
+    const file = path.join(os.tmpdir(), `pt-price-cache-${Date.now()}.db`);
+    tmpFiles.push(file);
+    const db = new Database(file);
+
+    // Simulate a pre-existing DB with the old (symbol, asset_class) key —
+    // a stale row that would otherwise collide with a same-symbol row in a
+    // different currency once the key changes.
+    db.exec(`
+      CREATE TABLE price_cache (
+        symbol TEXT NOT NULL,
+        asset_class TEXT NOT NULL,
+        price REAL NOT NULL,
+        currency TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (symbol, asset_class)
+      );
+      INSERT INTO price_cache (symbol, asset_class, price, currency, fetched_at)
+      VALUES ('AAPL', 'equity', 211.5, 'USD', '2026-01-01T00:00:00.000Z');
+    `);
+
+    migrate(db);
+
+    const cols = db.prepare("PRAGMA table_info(price_cache)").all() as {
+      name: string;
+      pk: number;
+    }[];
+    const currencyCol = cols.find((c) => c.name === "currency");
+    expect(currencyCol?.pk).toBeGreaterThan(0);
+
+    // price_cache is a pure cache: the rebuild is allowed to drop the old
+    // row rather than preserve it.
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM price_cache").get(),
+    ).toEqual({ n: 0 });
+
+    // Now that the key includes currency, two currencies for the same
+    // symbol coexist instead of colliding.
+    db.prepare(
+      `INSERT INTO price_cache (symbol, asset_class, price, currency, fetched_at)
+       VALUES ('AAPL', 'equity', 211.5, 'USD', '2026-01-01T00:00:00.000Z'),
+              ('AAPL', 'equity', 195.2, 'EUR', '2026-01-01T00:00:00.000Z')`,
+    ).run();
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM price_cache").get(),
+    ).toEqual({ n: 2 });
+
+    db.close();
+  });
+
+  it("is a no-op on a database that already keys price_cache on currency", () => {
+    const file = path.join(os.tmpdir(), `pt-price-cache-noop-${Date.now()}.db`);
+    tmpFiles.push(file);
+    const db = new Database(file);
+
+    migrate(db);
+    db.prepare(
+      `INSERT INTO price_cache (symbol, asset_class, price, currency, fetched_at)
+       VALUES ('AAPL', 'equity', 211.5, 'USD', '2026-01-01T00:00:00.000Z')`,
+    ).run();
+
+    // Re-running migrate() (as happens on every getDb() call) must not wipe
+    // an already-current price_cache.
+    migrate(db);
+    migrate(db);
+
+    expect(
+      db.prepare("SELECT price, currency FROM price_cache").get(),
+    ).toEqual({ price: 211.5, currency: "USD" });
+
+    db.close();
+  });
 });
