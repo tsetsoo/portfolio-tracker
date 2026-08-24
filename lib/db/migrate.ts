@@ -48,7 +48,7 @@ export function migrate(db: Database.Database): void {
       price REAL NOT NULL,
       currency TEXT NOT NULL,
       fetched_at TEXT NOT NULL,
-      PRIMARY KEY (symbol, asset_class)
+      PRIMARY KEY (symbol, asset_class, currency)
     );
 
     CREATE TABLE IF NOT EXISTS fx_rates (
@@ -192,6 +192,8 @@ export function migrate(db: Database.Database): void {
     INSERT OR IGNORE INTO alert_pass_lock (id, locked_until) VALUES (1, NULL);
   `);
 
+  rebuildPriceCacheWithCurrencyKey(db);
+
   // Existing DBs created before import_batch_id: add the column safely.
   if (hasColumn(db, "lots", "id") && !hasColumn(db, "lots", "import_batch_id")) {
     db.exec(`ALTER TABLE lots ADD COLUMN import_batch_id TEXT`);
@@ -273,6 +275,42 @@ export function migrate(db: Database.Database): void {
       value_currency TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (wallet_id, asset)
+    );
+  `);
+}
+
+/**
+ * price_cache is a pure cache — no user data, no history, no cost basis —
+ * so losing every row costs exactly one refetch per symbol and nothing
+ * else. That makes the fix for two callers pricing the same symbol in
+ * different currencies (see lib/quotes/service.ts) cheap: rebuild the
+ * table with currency folded into the primary key rather than migrating
+ * rows in place. Guarded so it runs once — migrate() runs on every
+ * getDb() call, and this must not wipe a cache that already has the
+ * right key.
+ */
+function priceCacheKeyIncludesCurrency(db: Database.Database): boolean {
+  const cols = db.prepare(`PRAGMA table_info(price_cache)`).all() as {
+    name: string;
+    pk: number;
+  }[];
+  const currencyCol = cols.find((c) => c.name === "currency");
+  return currencyCol != null && currencyCol.pk > 0;
+}
+
+function rebuildPriceCacheWithCurrencyKey(db: Database.Database): void {
+  if (!hasColumn(db, "price_cache", "symbol")) return;
+  if (priceCacheKeyIncludesCurrency(db)) return;
+
+  db.exec(`
+    DROP TABLE price_cache;
+    CREATE TABLE price_cache (
+      symbol TEXT NOT NULL,
+      asset_class TEXT NOT NULL,
+      price REAL NOT NULL,
+      currency TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, asset_class, currency)
     );
   `);
 }

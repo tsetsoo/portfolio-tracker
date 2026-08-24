@@ -48,17 +48,42 @@ export function createQuoteService(
   db: Database.Database,
   fetchImpl: typeof fetch,
 ): QuoteService {
+  // `currency` is part of price_cache's primary key (symbol, asset_class,
+  // currency), so a symbol can have one cached row per currency at once —
+  // that is the whole point: the dashboard (holding.quoteCurrency) and the
+  // alert pass (alert.currency, frozen at create time) can each hold their
+  // own row instead of overwriting each other's on every read.
+  //
+  // When `currency` is given, read that exact row. When it is omitted, the
+  // caller has no way to name which currency it wants, so fall back to
+  // "whatever is cached for this symbol" — the same observable behaviour
+  // this had before currency joined the key, back when only one row could
+  // ever exist. With more than one row now possible, "whatever is cached"
+  // is picked as the most recently fetched row, which is the closest
+  // reading of that old behaviour: it favours the freshest data instead of
+  // an arbitrary one.
   const readQuote = (
     symbol: string,
     assetClass: AssetClass,
+    currency?: string,
   ): PriceCacheRow | undefined =>
-    db
-      .prepare(
-        `SELECT price, currency, fetched_at
-         FROM price_cache
-         WHERE symbol = ? AND asset_class = ?`,
-      )
-      .get(symbol, assetClass) as PriceCacheRow | undefined;
+    currency
+      ? (db
+          .prepare(
+            `SELECT price, currency, fetched_at
+             FROM price_cache
+             WHERE symbol = ? AND asset_class = ? AND currency = ?`,
+          )
+          .get(symbol, assetClass, currency) as PriceCacheRow | undefined)
+      : (db
+          .prepare(
+            `SELECT price, currency, fetched_at
+             FROM price_cache
+             WHERE symbol = ? AND asset_class = ?
+             ORDER BY fetched_at DESC
+             LIMIT 1`,
+          )
+          .get(symbol, assetClass) as PriceCacheRow | undefined);
 
   const readFxRate = (from: string, to: string): FxCacheRow | undefined =>
     db
@@ -79,9 +104,8 @@ export function createQuoteService(
       `INSERT INTO price_cache
          (symbol, asset_class, price, currency, fetched_at)
        VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(symbol, asset_class) DO UPDATE SET
+       ON CONFLICT(symbol, asset_class, currency) DO UPDATE SET
          price = excluded.price,
-         currency = excluded.currency,
          fetched_at = excluded.fetched_at`,
     ).run(symbol, assetClass, quote.price, quote.currency, fetchedAt);
   };
@@ -91,12 +115,8 @@ export function createQuoteService(
     assetClass: AssetClass,
     preferredCurrency?: string,
   ): Quote => {
-    const cached = readQuote(symbol, assetClass);
-    if (
-      !cached ||
-      (preferredCurrency &&
-        cached.currency.toUpperCase() !== preferredCurrency)
-    ) {
+    const cached = readQuote(symbol, assetClass, preferredCurrency);
+    if (!cached) {
       throw new Error(`No cached quote for ${symbol}`);
     }
     return {
@@ -206,15 +226,9 @@ export function createQuoteService(
         return quote;
       }
 
-      const cached = readQuote(symbol, assetClass);
+      const cached = readQuote(symbol, assetClass, preferredCurrency);
 
-      if (
-        cached &&
-        !opts?.force &&
-        isFresh(cached.fetched_at) &&
-        (!preferredCurrency ||
-          cached.currency.toUpperCase() === preferredCurrency)
-      ) {
+      if (cached && !opts?.force && isFresh(cached.fetched_at)) {
         return {
           price: cached.price,
           currency: cached.currency,
@@ -227,11 +241,7 @@ export function createQuoteService(
       try {
         quote = await fetchYahooQuote(symbol, fetchImpl, { preferredCurrency });
       } catch (error) {
-        if (
-          cached &&
-          (!preferredCurrency ||
-            cached.currency.toUpperCase() === preferredCurrency)
-        ) {
+        if (cached) {
           return {
             price: cached.price,
             currency: cached.currency,
