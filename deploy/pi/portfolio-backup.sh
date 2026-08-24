@@ -31,8 +31,15 @@ RETRY_DELAY="${RETRY_DELAY:-30}"
 # and an unbounded `docker exec` would hang the unit in "activating" forever —
 # never logged as failed, with the next night's run merged into the stuck job.
 # Same reasoning as portfolio-snapshot.service's `curl --max-time`.
+#
+# These numbers have to add up to less than the unit's TimeoutStartSec, or
+# systemd kills the script mid-retry and COPY_ATTEMPTS is never really honoured.
+# Worst case per attempt is CONTAINER_WAIT + COPY_TIMEOUT = 240s; three attempts
+# with two RETRY_DELAY gaps is 780s, against TimeoutStartSec=1200. The copy
+# itself takes about two seconds for a 400KB database, so 120s is already two
+# orders of magnitude of headroom.
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-15}"
-COPY_TIMEOUT="${COPY_TIMEOUT:-300}"
+COPY_TIMEOUT="${COPY_TIMEOUT:-120}"
 
 log() { echo "portfolio-backup: $*"; }
 die() { echo "portfolio-backup: $*" >&2; exit 1; }
@@ -79,23 +86,53 @@ mkdir -p "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly" "$BACKUP_DIR/archive"
 # clear on a host shared with pihole, homebridge, nginx and uwsgi.
 chmod 0700 "$BACKUP_DIR" "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly" "$BACKUP_DIR/archive"
 
+# One run at a time. The staging sweep below deletes `.incoming-*`, which would
+# otherwise include a concurrent run's in-flight file — and the runbook does
+# invite running this by hand, so overlapping with the 00:30 timer run is a
+# realistic way to break it. Bail rather than queue: the timer will come round
+# again, and a queued second copy of the same night's data is worth nothing.
+exec 9>"$BACKUP_DIR/.lock"
+if ! flock -n 9; then
+  die "another $0 is already running (holding $BACKUP_DIR/.lock) — not running two at once"
+fi
+
 [[ -f "$DATA_DIR/portfolio.db" ]] || die "no live database at $DATA_DIR/portfolio.db"
+
+# Tighten the live database too, not just the copies. Locking down backups while
+# leaving the original 0644 in a 0755 directory protects nothing: any local
+# account (pihole, homebridge, nginx, uwsgi) could read the same bytes straight
+# from the source that the offsite half bothers to encrypt. Both the app and the
+# container run as pi, so this costs nothing. Done here as well as in
+# bootstrap.sh because bootstrap is never re-run.
+for target in "$DATA_DIR" "$DATA_DIR/portfolio.db"; do
+  want=0600; [[ -d "$target" ]] && want=0700
+  have="$(stat -c %a "$target")"
+  if [[ "$have" != "${want#0}" && "$have" != "$want" ]]; then
+    chmod "$want" "$target" && log "tightened $target from $have to $want"
+  fi
+done
 
 # --- wait for the container -------------------------------------------------
 wait_for_container() {
-  local waited=0
+  # Wall clock, not a count of sleeps. Each failed probe can itself burn
+  # PROBE_TIMEOUT before the sleep, so counting only the sleeps understated the
+  # real wait roughly fourfold with a wedged docker daemon — the very failure
+  # the timeout was added for — and CONTAINER_WAIT did not mean what it said.
+  local started=$SECONDS elapsed=0 announced=0
   until timeout "$PROBE_TIMEOUT" "$DOCKER" exec "$CONTAINER" true >/dev/null 2>&1; do
-    if (( waited >= CONTAINER_WAIT )); then
-      die "container '$CONTAINER' not exec-able after ${CONTAINER_WAIT}s; no sqlite available to make a consistent copy"
+    elapsed=$(( SECONDS - started ))
+    if (( elapsed >= CONTAINER_WAIT )); then
+      die "container '$CONTAINER' not exec-able after ${elapsed}s (budget ${CONTAINER_WAIT}s); no sqlite available to make a consistent copy"
     fi
-    if (( waited == 0 )); then
+    if (( announced == 0 )); then
       log "waiting for container '$CONTAINER'"
+      announced=1
     fi
     sleep 5
-    waited=$(( waited + 5 ))
   done
-  if (( waited > 0 )); then
-    log "container ready after ${waited}s"
+  elapsed=$(( SECONDS - started ))
+  if (( elapsed > 0 )); then
+    log "container ready after ${elapsed}s"
   fi
 }
 
@@ -107,7 +144,12 @@ wait_for_container() {
 # encrypted and pushed off-device with an "ok" in the journal. The leading dot
 # keeps the staging file out of those *.db globs while it is in flight.
 staging=".incoming-$name"
-cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging"; }
+# Also the sidecar: sqlite3_backup_step writes the destination inside a write
+# transaction, so "<dest>-journal" exists while the copy is in flight. It does
+# not end in .db, so no glob here — cleanup, the sweep, or prune — would ever
+# have matched it, and a hard kill mid-copy would leave an invisible dotfile
+# accumulating on the SD card forever.
+cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging" "$BACKUP_DIR/daily/$staging"-*; }
 # INT/TERM as well as EXIT: a systemctl stop or a start-timeout kill would
 # otherwise leave the staging file behind, and being a dotfile it is invisible
 # to every *.db glob here — including prune — so orphans would accumulate on the
@@ -122,9 +164,15 @@ cleanup_staging() { rm -f "$BACKUP_DIR/daily/$staging"; }
 trap cleanup_staging EXIT
 trap 'cleanup_staging; exit 143' INT TERM
 
-# Sweep any staging files a previous hard kill left behind, for the same reason.
+# Sweep staging files a previous hard kill left behind — including the -journal
+# sidecars, hence `.incoming-*` rather than `.incoming-*.db`.
+#
+# Safe only because of the lock above: this glob would otherwise match the
+# in-flight staging file of a concurrent run and unlink it from under the
+# container's open descriptor, so a hand-run during the 00:30 timer run would
+# quietly break that run. The runbook does invite running this by hand.
 shopt -s nullglob dotglob
-stale=( "$BACKUP_DIR"/daily/.incoming-*.db )
+stale=( "$BACKUP_DIR"/daily/.incoming-* )
 shopt -u nullglob dotglob
 if (( ${#stale[@]} > 0 )); then
   rm -f "${stale[@]}"

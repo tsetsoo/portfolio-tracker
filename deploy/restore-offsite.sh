@@ -42,11 +42,17 @@ else
   if [[ -z "$name" ]]; then
     # Names are portfolio-YYYY-MM-DD-HHMMSS.db.gpg, so lexical order is
     # chronological and the last one is the newest.
-    # `|| true` so an empty remote reaches the die below with an explanation,
-    # rather than pipefail killing the script silently — this is the script you
-    # reach for in an emergency, so it has to say what is wrong.
-    name="daily/$("$RCLONE" lsf "$OFFSITE_REMOTE/daily" | grep '\.db\.gpg$' | sort | tail -1 || true)"
-    [[ "$name" != "daily/" ]] || die "no .db.gpg objects at $OFFSITE_REMOTE/daily (has the offsite push run? see docs/runbooks/offsite-backup.md)"
+    # Keep the listing's own failure distinguishable from "the listing was
+    # empty". Collapsing both into one `|| true` told the operator the push had
+    # never run when the real problem was a wrong remote name, expired
+    # credentials or no network — the worst possible misdirection in the script
+    # you reach for in an emergency.
+    if ! listing="$("$RCLONE" lsf "$OFFSITE_REMOTE/daily")"; then
+      die "could not list $OFFSITE_REMOTE/daily — check the remote name, credentials and network (rclone's own error is above)"
+    fi
+    name="$(printf '%s\n' "$listing" | grep '\.db\.gpg$' | sort | tail -1 || true)"
+    [[ -n "$name" ]] || die "no .db.gpg objects at $OFFSITE_REMOTE/daily (has the offsite push run? see docs/runbooks/offsite-backup.md)"
+    name="daily/$name"
     echo "restore: newest is $name"
   elif [[ "$name" != */* ]]; then
     found=""
@@ -76,8 +82,15 @@ integrity="$(sqlite3 "$out" 'PRAGMA integrity_check;')"
 
 echo "restore: $out"
 echo "restore: integrity_check ok"
-for t in holdings lots snapshots import_batches; do
-  printf '  %-15s %s\n' "$t" "$(sqlite3 "$out" "SELECT COUNT(*) FROM $t;")"
+# Check each count rather than interpolating it: a failing command substitution
+# does not fail the enclosing printf under set -e, so a backup predating one of
+# these tables used to print a blank column and still end with "this backup is
+# restorable".
+for t in holdings lots snapshots import_batches wallets wallet_addresses wallet_transfers settings; do
+  if ! n="$(sqlite3 "$out" "SELECT COUNT(*) FROM $t;" 2>&1)"; then
+    die "could not read table '$t' from $out — it is not the schema this expects ($n)"
+  fi
+  printf '  %-18s %s\n' "$t" "$n"
 done
 echo "  latest snapshot $(sqlite3 "$out" 'SELECT date FROM snapshots ORDER BY date DESC LIMIT 1;')"
 echo

@@ -17,7 +17,11 @@ ExecStart=/opt/portfolio/portfolio-backup.sh
 # Type=oneshot defaults TimeoutStartSec to infinity, which would let a wedged
 # docker daemon park this unit in "activating" forever: never logged as failed,
 # and the next night's timer elapse merged into the stuck job, so backups would
-# stop silently. That is the failure this unit exists to make loud. The budget
-# covers the script's own worst case — COPY_ATTEMPTS(3) x CONTAINER_WAIT(120)
-# plus the retry delays, about 7 minutes — with room to spare.
-TimeoutStartSec=900
+# stop silently. That is the failure this unit exists to make loud.
+#
+# This has to exceed the script's real worst case, or systemd SIGTERMs it
+# mid-retry, COPY_ATTEMPTS is never honoured, and the script's own explanatory
+# failure never reaches the journal. That worst case is
+# COPY_ATTEMPTS(3) x (CONTAINER_WAIT(120) + COPY_TIMEOUT(120)) plus two
+# RETRY_DELAY(30) gaps = 780s. Keep this above that if those knobs change.
+TimeoutStartSec=1200

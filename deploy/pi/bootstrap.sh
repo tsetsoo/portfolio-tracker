@@ -16,7 +16,13 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 install -d -o root -g root -m 0755 /opt/portfolio /opt/portfolio/releases
-install -d -o pi -g pi -m 0755 /opt/portfolio/data
+# 0700, not 0755: this directory holds the financial database in the clear, and
+# the host also runs pihole, homebridge, nginx and uwsgi. Both the app and its
+# container run as pi, so nothing else needs to traverse it.
+install -d -o pi -g pi -m 0700 /opt/portfolio/data
+if [[ -f /opt/portfolio/data/portfolio.db ]]; then
+  chmod 0600 /opt/portfolio/data/portfolio.db
+fi
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-update.sh" /opt/portfolio/portfolio-update.sh
 install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-container.sh
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-backup.sh" /opt/portfolio/portfolio-backup.sh

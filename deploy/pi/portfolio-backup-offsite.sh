@@ -36,10 +36,10 @@ OFFSITE_KEEP_MONTHLY="${OFFSITE_KEEP_MONTHLY:-12}"
 # has been broken for days" from this side too, rather than faithfully pushing
 # the same stale file every night and reporting success.
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-25}"
-# How long to wait for a local backup that is currently running. Must exceed
+# How long to wait for a fresh local backup to appear. Must exceed
 # portfolio-backup.sh's own worst case, or this gives up on precisely the night
-# the retries were needed: COPY_ATTEMPTS(3) x CONTAINER_WAIT(120) plus two
-# RETRY_DELAY(30) gaps is already ~420s, so 300 was too short.
+# the retries were needed: COPY_ATTEMPTS(3) x (CONTAINER_WAIT(120) +
+# COPY_TIMEOUT(120)) plus two RETRY_DELAY(30) gaps = 780s.
 BACKUP_WAIT="${BACKUP_WAIT:-900}"
 BACKUP_UNIT="${BACKUP_UNIT:-portfolio-backup.service}"
 
@@ -101,38 +101,56 @@ fi
 gpg --list-keys "$GPG_RECIPIENT" >/dev/null 2>&1 \
   || die "public key $GPG_RECIPIENT not in pi's keyring — import it first"
 
-# --- do not race the local backup -------------------------------------------
-# After downtime both timers fire their missed runs at once (Persistent=true),
-# and After= only orders units started in the same transaction — so this can
-# start *before* the backup it is meant to follow, find a days-old copy, and
-# fail the age guard below for no real reason. If the backup is running, wait.
-waited=0
-while :; do
-  state="$(systemctl show -p ActiveState --value "$BACKUP_UNIT" 2>/dev/null || echo unknown)"
-  case "$state" in
-    activating|active|reloading) ;;
-    *) break ;;
-  esac
-  if (( waited >= BACKUP_WAIT )); then
-    die "$BACKUP_UNIT has been $state for ${BACKUP_WAIT}s — not pushing while it may still be writing"
+# --- wait for a local backup worth pushing ----------------------------------
+# Both timers are Persistent=true with independent RandomizedDelaySec, and
+# After= only orders units started in the same *transaction* — so after downtime
+# this can elapse before the backup it is meant to follow has even started.
+#
+# Waiting only while the unit was already activating/active missed precisely
+# that case: a catch-up run that has not begun reads as "inactive", the wait
+# fell straight through, and the staleness check below then blamed a healthy
+# backup that succeeded seconds later. So wait on the thing actually needed — a
+# fresh copy on disk — and let the unit state only explain the wait in the
+# journal. Published copies are renamed into place atomically and staging files
+# are dotfiles excluded from this glob, so anything matched here is complete.
+pick_newest() { ls -1t "$BACKUP_DIR"/daily/*.db 2>/dev/null | head -1 || true; }
+backup_state() { systemctl show -p ActiveState --value "$BACKUP_UNIT" 2>/dev/null || echo unknown; }
+is_fresh() {
+  local f="${1:-}"
+  [[ -n "$f" ]] || return 1
+  (( $(date +%s) - $(stat -c %Y "$f") <= MAX_AGE_HOURS * 3600 ))
+}
+
+started=$SECONDS
+newest="$(pick_newest)"
+announced=0
+while ! is_fresh "$newest"; do
+  state="$(backup_state)"
+  # A unit already sitting in "failed" is not going to produce anything, so do
+  # not burn the whole budget waiting for it.
+  if [[ "$state" == "failed" ]]; then
+    log "$BACKUP_UNIT is failed — not waiting for a backup that is not coming"
+    break
   fi
-  if (( waited == 0 )); then
-    log "$BACKUP_UNIT is $state — waiting for it to finish"
+  if (( SECONDS - started >= BACKUP_WAIT )); then
+    break
+  fi
+  if (( announced == 0 )); then
+    log "no fresh local backup yet ($BACKUP_UNIT is $state) — waiting up to ${BACKUP_WAIT}s"
+    announced=1
   fi
   sleep 5
-  waited=$(( waited + 5 ))
+  newest="$(pick_newest)"
 done
-if (( waited > 0 )); then
-  log "local backup finished after ${waited}s"
+if (( announced == 1 )); then
+  log "waited $(( SECONDS - started ))s for a fresh local backup"
 fi
 
-# --- pick the newest verified local backup ----------------------------------
-newest="$(ls -1t "$BACKUP_DIR"/daily/*.db 2>/dev/null | head -1 || true)"
 [[ -n "$newest" ]] || die "no local backup in $BACKUP_DIR/daily to push — has portfolio-backup.service run?"
 
 age_s=$(( $(date +%s) - $(stat -c %Y "$newest") ))
 if (( age_s > MAX_AGE_HOURS * 3600 )); then
-  die "newest local backup $(basename "$newest") is $(( age_s / 3600 ))h old (> ${MAX_AGE_HOURS}h) — the local backup is broken; fix that before trusting the offsite copy"
+  die "newest local backup $(basename "$newest") is $(( age_s / 3600 ))h old (> ${MAX_AGE_HOURS}h) and nothing fresher appeared within ${BACKUP_WAIT}s — the local backup is broken; fix that before trusting the offsite copy"
 fi
 
 # --- encrypt one file, push it, and prove it arrived ------------------------
@@ -212,7 +230,7 @@ push_one() {
 
 # --- prune one tier at the far end -----------------------------------------
 prune_remote() {
-  local remote_dir="$1" keep="$2" label="$3"
+  local remote_dir="$1" keep="$2" label="$3" expect_nonempty="${4:-1}"
   local listing kept drop old
   local -a files
 
@@ -224,8 +242,17 @@ prune_remote() {
     || die "could not list $remote_dir — cannot enforce remote retention"
   mapfile -t files < <(printf '%s\n' "$listing" | grep '\.db\.gpg$' | sort || true)
   kept=${#files[@]}
-  (( kept > 0 )) \
-    || die "listed $remote_dir but found no .db.gpg objects immediately after uploading to it"
+  if (( kept == 0 )); then
+    # Only an error if something was just pushed here. An empty tier is
+    # legitimate otherwise — with KEEP_MONTHLY=0 there are no local monthlies to
+    # push, and failing here would report the whole run as failed *after* the
+    # daily had already been encrypted, uploaded and verified.
+    if (( expect_nonempty )); then
+      die "listed $remote_dir but found no .db.gpg objects immediately after uploading to it"
+    fi
+    log "$label: nothing at $remote_dir"
+    return 0
+  fi
 
   if (( kept > keep )); then
     drop=$(( kept - keep ))
@@ -271,6 +298,16 @@ monthly_listing="$(rc lsf "$OFFSITE_REMOTE/monthly")" \
 shopt -s nullglob
 local_monthlies=( "$BACKUP_DIR"/monthly/*.db )
 shopt -u nullglob
+
+# Consider only the newest OFFSITE_KEEP_MONTHLY of them. Without this, setting
+# OFFSITE_KEEP_MONTHLY below the local KEEP_MONTHLY meant uploading monthlies
+# that prune_remote deleted moments later and re-uploading them every night
+# forever — nothing records that an object was deliberately pruned, so
+# "is it in the listing" would have said no every time.
+if (( ${#local_monthlies[@]} > OFFSITE_KEEP_MONTHLY )); then
+  mapfile -t local_monthlies < <(printf '%s\n' "${local_monthlies[@]}" | sort | tail -n "$OFFSITE_KEEP_MONTHLY")
+fi
+
 pushed_monthly=0
 for m in "${local_monthlies[@]}"; do
   if printf '%s\n' "$monthly_listing" | grep -qxF "$(basename "$m").gpg"; then
@@ -280,8 +317,10 @@ for m in "${local_monthlies[@]}"; do
   pushed_monthly=$(( pushed_monthly + 1 ))
 done
 if (( pushed_monthly == 0 )); then
-  log "monthlies already off-device (${#local_monthlies[@]} local)"
+  log "monthlies already off-device (${#local_monthlies[@]} in scope)"
 fi
-prune_remote "$OFFSITE_REMOTE/monthly" "$OFFSITE_KEEP_MONTHLY" monthly
+# expect_nonempty only if we pushed, or there was something local to push.
+prune_remote "$OFFSITE_REMOTE/monthly" "$OFFSITE_KEEP_MONTHLY" monthly \
+  "$(( pushed_monthly > 0 ? 1 : 0 ))"
 
 log "ok — $OFFSITE_REMOTE"

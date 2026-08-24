@@ -175,8 +175,10 @@ in both tiers; to go further back, name a monthly explicitly:
 ```bash
 OFFSITE_REMOTE="offsite:your-bucket/portfolio" \
   ./deploy/restore-offsite.sh monthly/portfolio-2026-07-01-003012.db.gpg
-``` It prints row counts and the latest
-snapshot date so you can see at a glance how current the copy is.
+```
+
+It prints row counts and the latest snapshot date so you can see at a glance
+how current the copy is.
 
 **Do this occasionally, not just in an emergency.** A backup nobody has ever
 restored is a hypothesis. It also needs `rclone` on the Mac (`brew install
