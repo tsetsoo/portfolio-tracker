@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { allowedAlertCurrencies } from "@/lib/alerts/currencies";
 import { createAlert, deleteAlert, setAlertEnabled } from "@/lib/alerts/repo";
 import { resolveAlertSymbol } from "@/lib/alerts/resolve-symbol";
 import { runAlertsNow, type RunAlertsResult } from "@/lib/alerts/run";
@@ -27,6 +28,8 @@ export interface CreateAlertInput {
   percentWhole?: number;
   cooldownMinutes?: number;
   label?: string;
+  /** Defaults to the portfolio base currency when omitted. */
+  currency?: string;
 }
 
 function errorMessage(error: unknown): string {
@@ -41,6 +44,8 @@ export async function createAlertAction(
   input: CreateAlertInput,
 ): Promise<ActionResult> {
   try {
+    const db = getDb();
+
     // Cheap checks first: a typo'd form must not burn a rate-limited
     // CoinGecko/Yahoo call inside resolveAlertSymbol.
     if (input.kind === "threshold") {
@@ -91,12 +96,22 @@ export async function createAlertAction(
       }
     }
 
-    const db = getDb();
     const { baseCurrency } = getSettings(db);
+    const requestedCurrency = (input.currency ?? baseCurrency)
+      .trim()
+      .toUpperCase();
+    const allowedCurrencies = allowedAlertCurrencies(db);
+    if (!allowedCurrencies.includes(requestedCurrency)) {
+      return {
+        ok: false,
+        error: `Currency must be one of: ${allowedCurrencies.join(", ")}`,
+      };
+    }
+
     const resolved = await resolveAlertSymbol(
       input.symbol,
       input.assetClass,
-      baseCurrency,
+      requestedCurrency,
       createQuoteService(db, globalThis.fetch),
     );
 
