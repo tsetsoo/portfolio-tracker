@@ -126,15 +126,27 @@ export function listArmedAlerts(db: Database.Database): PriceAlert[] {
   return rows.map(mapAlert);
 }
 
+/**
+ * Enabling clears any stale last_error: it was recorded on some prior pass
+ * (possibly while the alert was disabled), and the UI shows a non-null
+ * last_error as an enabled alert's current status — leaving it in place
+ * would keep displaying that stale error as "current" until the next
+ * successful check, which never happens if Telegram is unconfigured.
+ * Disabling deliberately leaves last_error alone: the UI shows
+ * "Disabled — <error>" for a disabled alert carrying one, which is useful
+ * (it's why the alert got disabled) and does not claim to be current.
+ */
 export function setAlertEnabled(
   db: Database.Database,
   id: string,
   enabled: boolean,
 ): void {
-  db.prepare("UPDATE price_alerts SET enabled = ? WHERE id = ?").run(
-    enabled ? 1 : 0,
-    id,
-  );
+  db.prepare(
+    `UPDATE price_alerts
+        SET enabled = ?,
+            last_error = CASE WHEN ? THEN NULL ELSE last_error END
+      WHERE id = ?`,
+  ).run(enabled ? 1 : 0, enabled ? 1 : 0, id);
 }
 
 export function deleteAlert(db: Database.Database, id: string): void {

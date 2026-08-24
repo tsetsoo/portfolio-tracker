@@ -293,6 +293,31 @@ describe("alerts repository", () => {
     ).toThrow();
   });
 
+  it("clears a stale last_error on enable, but keeps it on disable", () => {
+    const alert = createAlert(db, {
+      symbol: "BTC",
+      assetClass: "crypto",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 100_000,
+      anchorPrice: 96_400,
+      currency: "EUR",
+    });
+    recordCheck(db, alert.id, {
+      checkedAt: "2026-08-21T10:00:00.000Z",
+      price: null,
+      error: "no quote available",
+    });
+
+    setAlertEnabled(db, alert.id, false);
+    expect(getAlert(db, alert.id)?.enabled).toBe(false);
+    expect(getAlert(db, alert.id)?.lastError).toBe("no quote available");
+
+    setAlertEnabled(db, alert.id, true);
+    expect(getAlert(db, alert.id)?.enabled).toBe(true);
+    expect(getAlert(db, alert.id)?.lastError).toBeNull();
+  });
+
   it("deletes an alert", () => {
     const alert = createAlert(db, {
       symbol: "BTC",
