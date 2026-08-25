@@ -1,0 +1,19 @@
+[Unit]
+Description=Back up the portfolio database and push it off the device
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# pi owns the data directory; nothing here needs root.
+User=pi
+Group=pi
+ExecStart=/opt/portfolio/portfolio-backup.sh
+# Non-zero exits stand, so failures surface in `journalctl -u portfolio-backup`.
+# A silent backup failure is worse than no backup.
+#
+# Type=oneshot defaults TimeoutStartSec to infinity, which would let a hung
+# network call park this unit in "activating" forever: never logged as failed,
+# with the next night's timer elapse merged into the stuck job. The work itself
+# is a two-second copy and a 60KB upload, so this is pure backstop.
+TimeoutStartSec=600

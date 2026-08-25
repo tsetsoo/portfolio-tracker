@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up the portfolio database once a day
+
+[Timer]
+# After the snapshot has landed, not before. portfolio-snapshot.timer fires at
+# 00:10 with up to 300s of jitter and its curl allows 240s, so it can still be
+# working at ~00:19 — 00:30 clears that with room to spare, and means each
+# backup contains that day's net-worth row rather than missing it by minutes.
+OnCalendar=*-*-* 00:30
+# Snapshot history cannot be backfilled, so a backup missed to downtime should
+# be taken at the next opportunity rather than skipped.
+Persistent=true
+RandomizedDelaySec=120
+AccuracySec=1min
+Unit=portfolio-backup.service
+
+[Install]
+WantedBy=timers.target
