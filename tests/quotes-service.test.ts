@@ -335,13 +335,100 @@ describe("quote service cache", () => {
       stale: false,
       fetchedAt: "2026-07-25T12:00:00.000Z",
     });
+    // price_cache is keyed (symbol, asset_class, currency), so the stale USD
+    // row from the setup insert can still be present alongside the new EUR
+    // row (see "caches the same symbol in two currencies without evicting
+    // either" below). Filter on currency explicitly rather than relying on
+    // row order, so this asserts what a EUR-preferring caller actually gets:
+    // the freshly fetched EUR quote.
     expect(
       db
         .prepare(
           `SELECT price, currency FROM price_cache
-           WHERE symbol = 'GRID' AND asset_class = 'equity'`,
+           WHERE symbol = 'GRID' AND asset_class = 'equity' AND currency = 'EUR'`,
         )
         .get(),
     ).toEqual({ price: 54.47, currency: "EUR" });
+  });
+
+  it("caches the same symbol in two currencies without evicting either", async () => {
+    // This is the bug this fix addresses: the dashboard and the alert pass
+    // can ask for the same symbol in different currencies. With currency
+    // folded into price_cache's key, both rows coexist instead of each
+    // caller's write evicting the other's.
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      const href = String(url);
+      const currency = href.includes("GRID.DE") ? "EUR" : "USD";
+      const price = currency === "EUR" ? 54.47 : 59.1;
+      return new Response(
+        JSON.stringify({
+          chart: {
+            result: [{ meta: { regularMarketPrice: price, currency } }],
+            error: null,
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getQuote("GRID", "equity", { preferredCurrency: "USD" }),
+    ).resolves.toMatchObject({ price: 59.1, currency: "USD" });
+    await expect(
+      service.getQuote("GRID", "equity", { preferredCurrency: "EUR" }),
+    ).resolves.toMatchObject({ price: 54.47, currency: "EUR" });
+
+    const rows = db
+      .prepare(
+        `SELECT price, currency FROM price_cache
+         WHERE symbol = 'GRID' AND asset_class = 'equity'
+         ORDER BY currency`,
+      )
+      .all();
+    expect(rows).toEqual([
+      { price: 54.47, currency: "EUR" },
+      { price: 59.1, currency: "USD" },
+    ]);
+
+    // Each currency's cache hit stays fresh and independent of the other.
+    fetchImpl.mockClear();
+    await expect(
+      service.getQuote("GRID", "equity", { preferredCurrency: "USD" }),
+    ).resolves.toEqual({
+      price: 59.1,
+      currency: "USD",
+      stale: false,
+      fetchedAt: "2026-07-25T12:00:00.000Z",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not satisfy a request for one currency with a cache hit in another", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("GRID", "equity", 59.1, "USD", "2026-07-25T11:55:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chart: {
+            result: [{ meta: { regularMarketPrice: 54.47, currency: "EUR" } }],
+            error: null,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getQuote("GRID", "equity", { preferredCurrency: "EUR" }),
+    ).resolves.toMatchObject({ price: 54.47, currency: "EUR" });
+    // A fresh USD row existed, but it must not have been treated as a hit
+    // for the EUR request.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

@@ -66,7 +66,8 @@ ok = c.execute("PRAGMA integrity_check").fetchone()[0]
 if ok != "ok":
     raise SystemExit("integrity_check: %s" % ok)
 for t in ("holdings", "lots", "snapshots", "import_batches",
-          "wallets", "wallet_addresses", "wallet_transfers", "settings"):
+          "wallets", "wallet_addresses", "wallet_transfers", "settings",
+          "price_alerts"):
     print("  %-18s %d" % (t, c.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]))
 print("  newest snapshot    %s" % c.execute("SELECT MAX(date) FROM snapshots").fetchone()[0])
 c.close()

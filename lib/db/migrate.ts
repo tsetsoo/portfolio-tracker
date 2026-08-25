@@ -48,7 +48,7 @@ export function migrate(db: Database.Database): void {
       price REAL NOT NULL,
       currency TEXT NOT NULL,
       fetched_at TEXT NOT NULL,
-      PRIMARY KEY (symbol, asset_class)
+      PRIMARY KEY (symbol, asset_class, currency)
     );
 
     CREATE TABLE IF NOT EXISTS fx_rates (
@@ -140,9 +140,59 @@ export function migrate(db: Database.Database): void {
       UNIQUE (wallet_id, address)
     );
 
+    CREATE TABLE IF NOT EXISTS price_alerts (
+      id TEXT PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      asset_class TEXT NOT NULL CHECK (asset_class IN ('equity','crypto')),
+      kind TEXT NOT NULL CHECK (kind IN ('threshold','percent_move')),
+      direction TEXT NOT NULL,
+      target_price REAL,
+      percent REAL,
+      anchor_price REAL,
+      anchor_at TEXT,
+      currency TEXT NOT NULL,
+      label TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      -- Defence in depth for fresh databases only: this table is created with
+      -- CREATE TABLE IF NOT EXISTS, so an already-provisioned DB keeps its
+      -- constraint-free column. createAlertAction validates the same rule, and
+      -- that is what protects existing databases; retrofitting the CHECK would
+      -- need a table rebuild, which is deliberately not done here.
+      cooldown_minutes INTEGER NOT NULL DEFAULT 1440
+        CHECK (cooldown_minutes > 0),
+      last_fired_at TEXT,
+      last_checked_at TEXT,
+      last_price REAL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      CHECK (
+        (kind = 'threshold'
+          AND direction IN ('above','below')
+          AND target_price IS NOT NULL
+          AND percent IS NULL)
+        OR (kind = 'percent_move'
+          AND direction IN ('up','down','either')
+          AND percent IS NOT NULL AND percent > 0
+          AND anchor_price IS NOT NULL
+          AND target_price IS NULL)
+      )
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS wallet_addresses_address_uidx
       ON wallet_addresses(address);
+
+    -- Single-row lease lock so the several database connections that Next's
+    -- webpack layers create in one process (see lib/db/client.ts) can still
+    -- agree on whether an alert pass is already running. See
+    -- lib/alerts/pass-lock.ts.
+    CREATE TABLE IF NOT EXISTS alert_pass_lock (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      locked_until TEXT
+    );
+    INSERT OR IGNORE INTO alert_pass_lock (id, locked_until) VALUES (1, NULL);
   `);
+
+  rebuildPriceCacheWithCurrencyKey(db);
 
   // Existing DBs created before import_batch_id: add the column safely.
   if (hasColumn(db, "lots", "id") && !hasColumn(db, "lots", "import_batch_id")) {
@@ -225,6 +275,42 @@ export function migrate(db: Database.Database): void {
       value_currency TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (wallet_id, asset)
+    );
+  `);
+}
+
+/**
+ * price_cache is a pure cache — no user data, no history, no cost basis —
+ * so losing every row costs exactly one refetch per symbol and nothing
+ * else. That makes the fix for two callers pricing the same symbol in
+ * different currencies (see lib/quotes/service.ts) cheap: rebuild the
+ * table with currency folded into the primary key rather than migrating
+ * rows in place. Guarded so it runs once — migrate() runs on every
+ * getDb() call, and this must not wipe a cache that already has the
+ * right key.
+ */
+function priceCacheKeyIncludesCurrency(db: Database.Database): boolean {
+  const cols = db.prepare(`PRAGMA table_info(price_cache)`).all() as {
+    name: string;
+    pk: number;
+  }[];
+  const currencyCol = cols.find((c) => c.name === "currency");
+  return currencyCol != null && currencyCol.pk > 0;
+}
+
+function rebuildPriceCacheWithCurrencyKey(db: Database.Database): void {
+  if (!hasColumn(db, "price_cache", "symbol")) return;
+  if (priceCacheKeyIncludesCurrency(db)) return;
+
+  db.exec(`
+    DROP TABLE price_cache;
+    CREATE TABLE price_cache (
+      symbol TEXT NOT NULL,
+      asset_class TEXT NOT NULL,
+      price REAL NOT NULL,
+      currency TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, asset_class, currency)
     );
   `);
 }
