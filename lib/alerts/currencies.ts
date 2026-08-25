@@ -10,8 +10,15 @@ import { getSettings } from "@/lib/settings";
  * stablecoins or other crypto tokens such as USDT/CRO/BNB — are excluded,
  * since CoinGecko cannot price against them as a vs currency.
  *
- * Base currency first (the sensible form default), deduplicated,
- * upper-cased, and stable order otherwise.
+ * The base currency goes through the same `isRealFiatCurrency` check as lot
+ * currencies: `setBaseCurrency` only enforces "three letters", not genuine
+ * ISO-4217 membership, so a misconfigured base currency (e.g. "XYZ") is
+ * omitted rather than offered — CoinGecko cannot price against it either,
+ * and offering it would only lead to a confusing create-time failure. That
+ * can leave an empty list if no lot uses a real fiat currency either.
+ *
+ * Base currency first (the sensible form default) when it qualifies,
+ * deduplicated, upper-cased, and stable order otherwise.
  */
 export function allowedAlertCurrencies(db: Database.Database): string[] {
   const baseCurrency = getSettings(db).baseCurrency.trim().toUpperCase();
@@ -24,5 +31,9 @@ export function allowedAlertCurrencies(db: Database.Database): string[] {
     .map((row) => row.cost_currency.trim().toUpperCase())
     .filter((code) => isRealFiatCurrency(code));
 
-  return [...new Set([baseCurrency, ...lotFiatCurrencies])];
+  const candidates = isRealFiatCurrency(baseCurrency)
+    ? [baseCurrency, ...lotFiatCurrencies]
+    : lotFiatCurrencies;
+
+  return [...new Set(candidates)];
 }

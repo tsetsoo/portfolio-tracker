@@ -57,4 +57,21 @@ describe("allowedAlertCurrencies", () => {
 
     expect(allowedAlertCurrencies(db)).toEqual(["EUR", "USD"]);
   });
+
+  it("omits a non-ISO base currency instead of offering it unchecked", () => {
+    const db = makeDb();
+    db.exec(`
+      UPDATE settings SET base_currency = 'XYZ' WHERE id = 1;
+      INSERT INTO holdings
+        (id, type, symbol, name, quote_currency, manual_value, notes, updated_at)
+      VALUES
+        ('equity-1', 'equity', 'ACME', 'Acme Corp', 'USD', NULL, NULL, '2026-07-20');
+      INSERT INTO lots
+        (id, holding_id, quantity, cost_per_unit, cost_currency, purchased_at, fees)
+      VALUES
+        ('lot-usd', 'equity-1', 10, 80, 'USD', '2025-01-01', 0);
+    `);
+
+    expect(allowedAlertCurrencies(db)).toEqual(["USD"]);
+  });
 });
