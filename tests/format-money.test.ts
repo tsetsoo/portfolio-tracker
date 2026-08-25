@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMoney, formatSignedMoney } from "@/lib/format-money";
+import {
+  formatMoney,
+  formatSignedMoney,
+  isRealFiatCurrency,
+} from "@/lib/format-money";
+
+describe("isRealFiatCurrency", () => {
+  it("rejects well-formed but non-ISO-4217 crypto tickers", () => {
+    expect(isRealFiatCurrency("CRO")).toBe(false);
+    expect(isRealFiatCurrency("BNB")).toBe(false);
+  });
+
+  it("accepts real ISO-4217 currency codes", () => {
+    expect(isRealFiatCurrency("EUR")).toBe(true);
+    expect(isRealFiatCurrency("USD")).toBe(true);
+    expect(isRealFiatCurrency("GBP")).toBe(true);
+  });
+});
 
 describe("formatMoney", () => {
   it("formats ISO currencies with Intl", () => {

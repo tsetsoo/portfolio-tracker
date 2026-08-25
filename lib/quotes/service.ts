@@ -3,7 +3,7 @@ import "server-only";
 import type Database from "better-sqlite3";
 
 import { getDb } from "@/lib/db/client";
-import { isFiatCurrency } from "@/lib/format-money";
+import { isRealFiatCurrency } from "@/lib/format-money";
 import {
   coingeckoIdForSymbol,
   fetchCoinGeckoQuotes,
@@ -49,14 +49,16 @@ function readBaseCurrency(db: Database.Database): string {
  * fetchCoinGeckoQuotes can request any real fiat currency from CoinGecko
  * (falling back to USD itself if that currency has no price — see
  * pickVsPrice). A caller's preferredCurrency is honoured only when it names
- * a real fiat currency; anything else (a lot's quote_currency, which is
- * sometimes a stablecoin or another crypto token, e.g. USDT/CRO/BNB, not a
- * currency CoinGecko prices against) is treated the same as no preference
+ * a real fiat currency (isRealFiatCurrency, not the looser isFiatCurrency —
+ * a well-formed-but-nonexistent code such as CRO or BNB must not be sent to
+ * CoinGecko as a vs_currency); anything else (a lot's quote_currency, which
+ * is sometimes a stablecoin or another crypto token, e.g. USDT/CRO/BNB, not
+ * a currency CoinGecko prices against) is treated the same as no preference
  * at all — the historic "whatever is cached" behaviour.
  */
 function cryptoCurrencyOrUndefined(raw: string | undefined): string | undefined {
   const upper = raw?.trim().toUpperCase();
-  return upper && isFiatCurrency(upper) ? upper : undefined;
+  return upper && isRealFiatCurrency(upper) ? upper : undefined;
 }
 
 export function createQuoteService(
@@ -157,10 +159,18 @@ export function createQuoteService(
     if (symbols.length === 0) return result;
 
     const requestedCurrency = cryptoCurrencyOrUndefined(opts?.preferredCurrency);
+    // Resolved once per call, never left as `undefined`: readQuote's
+    // no-currency fallback is "most recently fetched row for this symbol,
+    // in ANY currency", which price_cache's (symbol, asset_class, currency)
+    // key can now populate with more than one row per symbol (e.g. the
+    // dashboard's base-currency row alongside an alert's own-currency row).
+    // A no-preference caller must keep getting the base-currency row, not
+    // whichever row happened to be fetched most recently.
+    const resolvedCurrency = requestedCurrency ?? readBaseCurrency(db);
 
     const missing: string[] = [];
     for (const symbol of symbols) {
-      const cached = readQuote(symbol, "crypto", requestedCurrency);
+      const cached = readQuote(symbol, "crypto", resolvedCurrency);
       if (cached && !opts?.force && (opts?.cacheOnly || isFresh(cached.fetched_at))) {
         result.set(symbol, {
           price: cached.price,
@@ -190,17 +200,16 @@ export function createQuoteService(
     );
     if (supportedMissing.length === 0) return result;
 
-    const baseCurrency = requestedCurrency ?? readBaseCurrency(db);
     let fetched: Map<string, { price: number; currency: string }>;
     try {
       fetched = await fetchCoinGeckoQuotes(
         supportedMissing,
-        baseCurrency,
+        resolvedCurrency,
         fetchImpl,
       );
     } catch {
       for (const symbol of missing) {
-        const cached = readQuote(symbol, "crypto", requestedCurrency);
+        const cached = readQuote(symbol, "crypto", resolvedCurrency);
         if (cached) {
           result.set(symbol, {
             price: cached.price,

@@ -1,21 +1,7 @@
 import type Database from "better-sqlite3";
 
-import { isFiatCurrency } from "@/lib/format-money";
+import { isRealFiatCurrency } from "@/lib/format-money";
 import { getSettings } from "@/lib/settings";
-
-// isFiatCurrency only checks that a code is a *well-formed* three-letter
-// currency code (the ECMA-402 rule Intl.NumberFormat itself enforces) — it
-// does not check that the code names a currency that actually exists.
-// Three-letter crypto tickers such as BNB and CRO are well-formed, so
-// isFiatCurrency alone would wrongly let them through here. Intersecting
-// with Intl.supportedValuesOf("currency"), which is the real ISO-4217 list,
-// closes that gap without touching isFiatCurrency's own behaviour (and
-// therefore without touching formatMoney's output).
-const ISO_CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
-
-function isRealFiatCurrency(code: string): boolean {
-  return isFiatCurrency(code) && ISO_CURRENCIES.has(code);
-}
 
 /**
  * Currencies a crypto alert may be denominated in: the portfolio base
@@ -24,8 +10,15 @@ function isRealFiatCurrency(code: string): boolean {
  * stablecoins or other crypto tokens such as USDT/CRO/BNB — are excluded,
  * since CoinGecko cannot price against them as a vs currency.
  *
- * Base currency first (the sensible form default), deduplicated,
- * upper-cased, and stable order otherwise.
+ * The base currency goes through the same `isRealFiatCurrency` check as lot
+ * currencies: `setBaseCurrency` only enforces "three letters", not genuine
+ * ISO-4217 membership, so a misconfigured base currency (e.g. "XYZ") is
+ * omitted rather than offered — CoinGecko cannot price against it either,
+ * and offering it would only lead to a confusing create-time failure. That
+ * can leave an empty list if no lot uses a real fiat currency either.
+ *
+ * Base currency first (the sensible form default) when it qualifies,
+ * deduplicated, upper-cased, and stable order otherwise.
  */
 export function allowedAlertCurrencies(db: Database.Database): string[] {
   const baseCurrency = getSettings(db).baseCurrency.trim().toUpperCase();
@@ -38,5 +31,9 @@ export function allowedAlertCurrencies(db: Database.Database): string[] {
     .map((row) => row.cost_currency.trim().toUpperCase())
     .filter((code) => isRealFiatCurrency(code));
 
-  return [...new Set([baseCurrency, ...lotFiatCurrencies])];
+  const candidates = isRealFiatCurrency(baseCurrency)
+    ? [baseCurrency, ...lotFiatCurrencies]
+    : lotFiatCurrencies;
+
+  return [...new Set(candidates)];
 }
