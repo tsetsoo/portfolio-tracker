@@ -3,7 +3,7 @@ import "server-only";
 import type Database from "better-sqlite3";
 
 import { getDb } from "@/lib/db/client";
-import { isFiatCurrency } from "@/lib/format-money";
+import { isRealFiatCurrency } from "@/lib/format-money";
 import {
   coingeckoIdForSymbol,
   fetchCoinGeckoQuotes,
@@ -49,14 +49,16 @@ function readBaseCurrency(db: Database.Database): string {
  * fetchCoinGeckoQuotes can request any real fiat currency from CoinGecko
  * (falling back to USD itself if that currency has no price — see
  * pickVsPrice). A caller's preferredCurrency is honoured only when it names
- * a real fiat currency; anything else (a lot's quote_currency, which is
- * sometimes a stablecoin or another crypto token, e.g. USDT/CRO/BNB, not a
- * currency CoinGecko prices against) is treated the same as no preference
+ * a real fiat currency (isRealFiatCurrency, not the looser isFiatCurrency —
+ * a well-formed-but-nonexistent code such as CRO or BNB must not be sent to
+ * CoinGecko as a vs_currency); anything else (a lot's quote_currency, which
+ * is sometimes a stablecoin or another crypto token, e.g. USDT/CRO/BNB, not
+ * a currency CoinGecko prices against) is treated the same as no preference
  * at all — the historic "whatever is cached" behaviour.
  */
 function cryptoCurrencyOrUndefined(raw: string | undefined): string | undefined {
   const upper = raw?.trim().toUpperCase();
-  return upper && isFiatCurrency(upper) ? upper : undefined;
+  return upper && isRealFiatCurrency(upper) ? upper : undefined;
 }
 
 export function createQuoteService(

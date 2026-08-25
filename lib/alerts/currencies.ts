@@ -1,21 +1,7 @@
 import type Database from "better-sqlite3";
 
-import { isFiatCurrency } from "@/lib/format-money";
+import { isRealFiatCurrency } from "@/lib/format-money";
 import { getSettings } from "@/lib/settings";
-
-// isFiatCurrency only checks that a code is a *well-formed* three-letter
-// currency code (the ECMA-402 rule Intl.NumberFormat itself enforces) — it
-// does not check that the code names a currency that actually exists.
-// Three-letter crypto tickers such as BNB and CRO are well-formed, so
-// isFiatCurrency alone would wrongly let them through here. Intersecting
-// with Intl.supportedValuesOf("currency"), which is the real ISO-4217 list,
-// closes that gap without touching isFiatCurrency's own behaviour (and
-// therefore without touching formatMoney's output).
-const ISO_CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
-
-function isRealFiatCurrency(code: string): boolean {
-  return isFiatCurrency(code) && ISO_CURRENCIES.has(code);
-}
 
 /**
  * Currencies a crypto alert may be denominated in: the portfolio base

@@ -4,10 +4,10 @@ const isoCurrencyCache = new Map<string, boolean>();
  * Whether Intl will format `code` as a currency — which is NOT the same as
  * `code` being a real ISO-4217 currency. Intl accepts any well-formed
  * three-letter code, so CRO and BNB both pass here; USDT fails only because
- * it has four letters. A caller that needs genuine ISO-4217 membership must
- * intersect with `Intl.supportedValuesOf("currency")` — see
- * `allowedAlertCurrencies` in lib/alerts/currencies.ts, which does exactly
- * that to keep crypto denominations out of the alert currency list.
+ * it has four letters. A caller that needs genuine ISO-4217 membership
+ * (e.g. deciding what may be sent to CoinGecko as a vs_currency, or what a
+ * crypto alert may be denominated in) must use `isRealFiatCurrency` below
+ * instead.
  *
  * Memoized because the probe allocates a formatter.
  */
@@ -28,6 +28,25 @@ export function isFiatCurrency(code: string): boolean {
     isoCurrencyCache.set(normalized, false);
     return false;
   }
+}
+
+const ISO_CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
+
+/**
+ * Whether `code` is a real ISO-4217 currency — stricter than
+ * `isFiatCurrency`, which only checks that a code is well-formed enough for
+ * Intl to accept it and therefore lets three-letter crypto tickers such as
+ * CRO and BNB through. Intersecting with `Intl.supportedValuesOf("currency")`
+ * closes that gap without touching `isFiatCurrency` itself, so
+ * `formatMoney`'s rendering (which relies on the looser check to decide
+ * Intl-currency-style vs. the crypto fallback) is unaffected.
+ *
+ * Use this wherever a crypto ticker must not be mistaken for a fiat
+ * currency: gating a CoinGecko vs_currency, or a crypto alert's allowed
+ * currency list.
+ */
+export function isRealFiatCurrency(code: string): boolean {
+  return isFiatCurrency(code) && ISO_CURRENCIES.has(code.trim().toUpperCase());
 }
 
 /**
