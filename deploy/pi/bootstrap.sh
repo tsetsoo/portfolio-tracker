@@ -37,6 +37,7 @@ fi
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-update.sh" /opt/portfolio/portfolio-update.sh
 install -o root -g root -m 0755 "$REPO_DIR/run-container.sh" /opt/portfolio/run-container.sh
 install -o root -g root -m 0755 "$REPO_DIR/portfolio-backup.sh" /opt/portfolio/portfolio-backup.sh
+install -o root -g root -m 0755 "$REPO_DIR/portfolio-alert.sh" /opt/portfolio/portfolio-alert.sh
 # pi-owned, because rclone writes a temp file beside its config when saving —
 # including on every OAuth token refresh, so a root-owned parent breaks the
 # backup nightly rather than only at setup.
@@ -48,6 +49,8 @@ install -m 0644 "$REPO_DIR/portfolio-snapshot.service" /etc/systemd/system/portf
 install -m 0644 "$REPO_DIR/portfolio-snapshot.timer" /etc/systemd/system/portfolio-snapshot.timer
 install -m 0644 "$REPO_DIR/portfolio-backup.service" /etc/systemd/system/portfolio-backup.service
 install -m 0644 "$REPO_DIR/portfolio-backup.timer" /etc/systemd/system/portfolio-backup.timer
+# Templated failure notifier; units opt in with OnFailure=portfolio-alert@%n.service
+install -m 0644 "$REPO_DIR/portfolio-alert@.service" /etc/systemd/system/portfolio-alert@.service
 
 systemctl daemon-reload
 

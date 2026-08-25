@@ -186,8 +186,27 @@ systemctl list-timers 'portfolio-*' --no-pager
 journalctl -u portfolio-backup --since "7 days ago" --no-pager
 ```
 
-Failures are non-zero exits, so they show up as failed units. Nothing alerts
-you, though — you have to look, or wire up an `OnFailure=`.
+Failures are non-zero exits, so they show up as failed units — **and they send a
+Telegram message.** `portfolio-backup.service` and `portfolio-snapshot.service`
+both carry `OnFailure=portfolio-alert@%n.service`, which posts the unit name,
+its result and the last dozen journal lines through the same bot the alerts
+feature uses (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in
+`/opt/portfolio/portfolio.env`). No new credential.
+
+Any other unit can opt in the same way. The notifier is best-effort and always
+exits 0 — it runs *because* something already failed, so it must never compound
+it; if the token is missing it says so in the journal and gives up.
+
+To test it end to end, make the unit fail on purpose and check your phone:
+
+```bash
+ssh pi@100.118.255.23 'sudo cp /etc/portfolio-backup.env /tmp/env.bak
+  echo "KEEP_REMOTE=0" | sudo tee -a /etc/portfolio-backup.env >/dev/null
+  sudo systemctl start portfolio-backup.service || true
+  sleep 5; sudo journalctl -u "portfolio-alert@portfolio-backup.service.service" -n 3 --no-pager --output=cat
+  sudo cp /tmp/env.bak /etc/portfolio-backup.env && sudo rm /tmp/env.bak
+  sudo systemctl reset-failed portfolio-backup.service'
+```
 
 ## Deploying changes
 

@@ -2,6 +2,9 @@
 Description=Record today's portfolio net-worth snapshot
 After=portfolio.service
 Wants=portfolio.service
+# A missed snapshot cannot be backfilled — ensureTodaySnapshot is
+# first-write-wins per date — so a silent failure here costs that day forever.
+OnFailure=portfolio-alert@%n.service
 
 [Service]
 Type=oneshot
