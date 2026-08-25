@@ -27,12 +27,16 @@ function assertRequestedCurrency(
  * `stale: true`. That flag is passed through so the caller can refuse to
  * anchor an alert on a price that was not actually refreshed.
  *
- * `requestedCurrency` is whatever currency the alert is being created in
- * (the portfolio base currency for equities today, or a user-chosen fiat
- * currency for crypto). The quote that comes back is asserted to actually
- * be in that currency: CoinGecko's pickVsPrice deliberately degrades to USD
- * when it has no price in the requested currency, and Yahoo can return a
- * listing's native currency, so trusting the provider's `currency` field
+ * `requestedCurrency` is whatever currency the caller asked for in
+ * `input.currency` — createAlertAction validates it against
+ * `allowedAlertCurrencies` but does not restrict it by asset class, so
+ * nothing here stops an equity from requesting any allowed currency too.
+ * In practice the create form only exposes the currency picker for crypto,
+ * so equities today always request the portfolio base currency. The quote
+ * that comes back is asserted to actually be in that currency: CoinGecko's
+ * pickVsPrice deliberately degrades to USD when it has no price in the
+ * requested currency, and Yahoo can return a listing's native currency, so
+ * trusting the provider's `currency` field
  * without checking it would silently freeze the wrong currency onto the
  * alert. fetchYahooQuote already rejects a currency mismatch itself, so
  * this check is belt-and-braces for equities and load-bearing for crypto.
