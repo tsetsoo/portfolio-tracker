@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram alert that %i failed
+# Templated so any unit can use it: OnFailure=portfolio-alert@%n.service passes
+# the failing unit's name in as %i.
+
+[Service]
+Type=oneshot
+# pi owns portfolio.env and is in the adm group, so it can read the journal.
+User=pi
+Group=pi
+ExecStart=/opt/portfolio/portfolio-alert.sh %i
+# This runs because something already failed; it must never compound that.
+# The script exits 0 on every path, and this bounds a hung network call.
+TimeoutStartSec=120

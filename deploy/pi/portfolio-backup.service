@@ -2,6 +2,9 @@
 Description=Back up the portfolio database and push it off the device
 After=network-online.target
 Wants=network-online.target
+# Failing loudly into the journal only helps if someone looks. A backup you
+# believe is running but is not is worse than one you know is broken.
+OnFailure=portfolio-alert@%n.service
 
 [Service]
 Type=oneshot
