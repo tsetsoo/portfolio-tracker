@@ -651,4 +651,77 @@ describe("quote service cache", () => {
     // for the EUR request.
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it("uses the base-currency cached row for a no-preference crypto request, even when another currency's row is more recently fetched", async () => {
+    // Regression test: this is the dashboard's call shape (no
+    // preferredCurrency at all). price_cache is keyed on currency too, so a
+    // USD row written by the alert pass can now coexist with the
+    // dashboard's own EUR (base currency) row. "most recently fetched,
+    // regardless of currency" would wrongly hand the dashboard the USD row
+    // here — the base-currency row must win instead.
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 98_400, "EUR", "2026-07-25T11:52:00.000Z");
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 108_500, "USD", "2026-07-25T11:58:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getCryptoQuotes(["BTC"])).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 98_400,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T11:52:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("still returns the exact requested currency's cached row when preferredCurrency is given, even if another currency's row is newer", async () => {
+    // Guard against over-correcting the fix above: an explicit currency
+    // request must keep getting its own row, not be redirected to the base
+    // currency.
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 98_400, "EUR", "2026-07-25T11:52:00.000Z");
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 108_500, "USD", "2026-07-25T11:58:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "EUR" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 98_400,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T11:52:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
