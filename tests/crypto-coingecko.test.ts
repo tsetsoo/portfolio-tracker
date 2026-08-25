@@ -68,6 +68,35 @@ describe("fetchCoinGeckoQuotes", () => {
       "ids=bitcoin%2Cethereum",
     );
   });
+
+  it("requests the preferred currency plus a usd fallback", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { gbp: 90_000, usd: 110_000 } }),
+        { status: 200 },
+      ),
+    );
+
+    const quotes = await fetchCoinGeckoQuotes(["BTC"], "GBP", fetchImpl);
+
+    expect(quotes.get("BTC")).toEqual({ price: 90_000, currency: "GBP" });
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain(
+      "vs_currencies=gbp,usd",
+    );
+  });
+
+  it("falls back to USD and reports currency USD when CoinGecko has no price in the requested currency", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { usd: 110_000 } }),
+        { status: 200 },
+      ),
+    );
+
+    const quotes = await fetchCoinGeckoQuotes(["BTC"], "GBP", fetchImpl);
+
+    expect(quotes.get("BTC")).toEqual({ price: 110_000, currency: "USD" });
+  });
 });
 
 describe("fetchCoinGeckoMarketChartRange", () => {

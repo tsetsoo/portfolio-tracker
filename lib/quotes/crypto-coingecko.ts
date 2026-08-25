@@ -112,7 +112,7 @@ export function pickPriceOnOrBefore(
 
 function pickVsPrice(
   prices: Record<string, number> | undefined,
-  preferredCurrency: "eur" | "usd",
+  preferredCurrency: string,
 ): { price: number; currency: string } {
   const currency =
     typeof prices?.[preferredCurrency] === "number"
@@ -131,7 +131,7 @@ export async function fetchCoinGeckoQuotes(
   baseCurrency: string,
   fetchImpl: typeof fetch,
 ): Promise<Map<string, { price: number; currency: string }>> {
-  const preferredCurrency = baseCurrency.toUpperCase() === "EUR" ? "eur" : "usd";
+  const preferredCurrency = baseCurrency.trim().toLowerCase();
   const idBySymbol = new Map<string, string>();
   const unsupported: string[] = [];
   for (const raw of symbols) {
@@ -152,9 +152,10 @@ export async function fetchCoinGeckoQuotes(
   if (idBySymbol.size === 0) return result;
 
   const ids = [...new Set(idBySymbol.values())];
+  const vsCurrencies = [...new Set([preferredCurrency, "usd"])];
   const url =
     `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}` +
-    "&vs_currencies=eur,usd";
+    `&vs_currencies=${vsCurrencies.join(",")}`;
   const response = await fetchImpl(url);
   if (!response.ok) {
     throw new Error(`CoinGecko request failed (${response.status})`);

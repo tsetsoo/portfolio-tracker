@@ -40,9 +40,12 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Quotes for every armed alert. Crypto goes out as one batched request;
- * equities are one request per symbol+currency pair, memoised so duplicate
- * alerts on the same symbol do not re-fetch.
+ * Quotes for every armed alert. Crypto goes out as one batched request per
+ * distinct currency (an alert's currency is frozen at create time and can
+ * differ from the portfolio's base currency, e.g. a USD-denominated BTC
+ * alert alongside a EUR-based portfolio); equities are one request per
+ * symbol+currency pair. Both are memoised so duplicate alerts on the same
+ * symbol+currency do not re-fetch.
  */
 async function loadQuotes(
   alerts: PriceAlert[],
@@ -50,16 +53,21 @@ async function loadQuotes(
 ): Promise<Map<string, Quote>> {
   const byKey = new Map<string, Quote>();
 
-  const cryptoSymbols = [
-    ...new Set(
-      alerts.filter((a) => a.assetClass === "crypto").map((a) => a.symbol),
-    ),
-  ];
-  if (cryptoSymbols.length > 0) {
+  const cryptoSymbolsByCurrency = new Map<string, Set<string>>();
+  for (const alert of alerts) {
+    if (alert.assetClass !== "crypto") continue;
+    const symbols =
+      cryptoSymbolsByCurrency.get(alert.currency) ?? new Set<string>();
+    symbols.add(alert.symbol);
+    cryptoSymbolsByCurrency.set(alert.currency, symbols);
+  }
+  for (const [currency, symbols] of cryptoSymbolsByCurrency) {
     try {
-      const fetched = await quotes.getCryptoQuotes(cryptoSymbols);
+      const fetched = await quotes.getCryptoQuotes([...symbols], {
+        preferredCurrency: currency,
+      });
       for (const [symbol, quote] of fetched) {
-        byKey.set(`crypto|${symbol}`, quote);
+        byKey.set(`crypto|${symbol}|${currency}`, quote);
       }
     } catch {
       // Leave them missing; each alert records "no quote available".
@@ -87,7 +95,7 @@ async function loadQuotes(
 
 function quoteKey(alert: PriceAlert): string {
   return alert.assetClass === "crypto"
-    ? `crypto|${alert.symbol}`
+    ? `crypto|${alert.symbol}|${alert.currency}`
     : `equity|${alert.symbol}|${alert.currency}`;
 }
 

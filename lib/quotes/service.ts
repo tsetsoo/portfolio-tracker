@@ -3,6 +3,7 @@ import "server-only";
 import type Database from "better-sqlite3";
 
 import { getDb } from "@/lib/db/client";
+import { isFiatCurrency } from "@/lib/format-money";
 import {
   coingeckoIdForSymbol,
   fetchCoinGeckoQuotes,
@@ -42,6 +43,20 @@ function readBaseCurrency(db: Database.Database): string {
       base_currency: string;
     }
   ).base_currency;
+}
+
+/**
+ * fetchCoinGeckoQuotes can request any real fiat currency from CoinGecko
+ * (falling back to USD itself if that currency has no price — see
+ * pickVsPrice). A caller's preferredCurrency is honoured only when it names
+ * a real fiat currency; anything else (a lot's quote_currency, which is
+ * sometimes a stablecoin or another crypto token, e.g. USDT/CRO/BNB, not a
+ * currency CoinGecko prices against) is treated the same as no preference
+ * at all — the historic "whatever is cached" behaviour.
+ */
+function cryptoCurrencyOrUndefined(raw: string | undefined): string | undefined {
+  const upper = raw?.trim().toUpperCase();
+  return upper && isFiatCurrency(upper) ? upper : undefined;
 }
 
 export function createQuoteService(
@@ -141,9 +156,11 @@ export function createQuoteService(
     const result = new Map<string, Quote>();
     if (symbols.length === 0) return result;
 
+    const requestedCurrency = cryptoCurrencyOrUndefined(opts?.preferredCurrency);
+
     const missing: string[] = [];
     for (const symbol of symbols) {
-      const cached = readQuote(symbol, "crypto");
+      const cached = readQuote(symbol, "crypto", requestedCurrency);
       if (cached && !opts?.force && (opts?.cacheOnly || isFresh(cached.fetched_at))) {
         result.set(symbol, {
           price: cached.price,
@@ -173,7 +190,7 @@ export function createQuoteService(
     );
     if (supportedMissing.length === 0) return result;
 
-    const baseCurrency = readBaseCurrency(db);
+    const baseCurrency = requestedCurrency ?? readBaseCurrency(db);
     let fetched: Map<string, { price: number; currency: string }>;
     try {
       fetched = await fetchCoinGeckoQuotes(
@@ -183,7 +200,7 @@ export function createQuoteService(
       );
     } catch {
       for (const symbol of missing) {
-        const cached = readQuote(symbol, "crypto");
+        const cached = readQuote(symbol, "crypto", requestedCurrency);
         if (cached) {
           result.set(symbol, {
             price: cached.price,

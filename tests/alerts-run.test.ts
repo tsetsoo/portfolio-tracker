@@ -24,7 +24,7 @@ function fresh(price: number, currency = "EUR"): Quote {
 
 /** Quote service backed by a fixed map; records how it was called. */
 function fakeQuotes(prices: Record<string, Quote>) {
-  const cryptoCalls: string[][] = [];
+  const cryptoCalls: { symbols: string[]; preferredCurrency?: string }[] = [];
   const equityCalls: { symbol: string; preferredCurrency?: string }[] = [];
   const service: QuoteService = {
     async getQuote(symbol, _assetClass, opts) {
@@ -36,8 +36,11 @@ function fakeQuotes(prices: Record<string, Quote>) {
       if (!quote) throw new Error(`no quote for ${symbol}`);
       return quote;
     },
-    async getCryptoQuotes(symbols) {
-      cryptoCalls.push(symbols);
+    async getCryptoQuotes(symbols, opts) {
+      cryptoCalls.push({
+        symbols: [...symbols],
+        preferredCurrency: opts?.preferredCurrency,
+      });
       const map = new Map<string, Quote>();
       for (const symbol of symbols) {
         const quote = prices[symbol];
@@ -132,8 +135,94 @@ describe("runAlerts", () => {
 
     await runAlerts({ db, quotes: service, notifier: fakeNotifier(), now: NOW });
 
+    // All three alerts above are EUR (thresholdAlert's default), so grouping
+    // by currency still yields exactly one batched call.
     expect(cryptoCalls).toHaveLength(1);
-    expect([...cryptoCalls[0]].sort()).toEqual(["BTC", "ETH"]);
+    expect([...cryptoCalls[0]!.symbols].sort()).toEqual(["BTC", "ETH"]);
+    expect(cryptoCalls[0]!.preferredCurrency).toBe("EUR");
+  });
+
+  it("groups crypto alerts by currency into one quote call per currency, keying results so same-symbol alerts in different currencies each get their own quote", async () => {
+    const btcUsd = createAlert(db, {
+      symbol: "BTC",
+      assetClass: "crypto",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 100_000,
+      anchorPrice: 90_000,
+      currency: "USD",
+    });
+    const btcEur = createAlert(db, {
+      symbol: "BTC",
+      assetClass: "crypto",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 100_000,
+      anchorPrice: 90_000,
+      currency: "EUR",
+    });
+    const ethUsd = createAlert(db, {
+      symbol: "ETH",
+      assetClass: "crypto",
+      kind: "threshold",
+      direction: "above",
+      targetPrice: 5_000,
+      anchorPrice: 4_000,
+      currency: "USD",
+    });
+
+    const cryptoCalls: { symbols: string[]; preferredCurrency?: string }[] =
+      [];
+    const service: QuoteService = {
+      async getQuote() {
+        throw new Error("not used in this test");
+      },
+      async getCryptoQuotes(symbols, opts) {
+        cryptoCalls.push({
+          symbols: [...symbols],
+          preferredCurrency: opts?.preferredCurrency,
+        });
+        const map = new Map<string, Quote>();
+        for (const symbol of symbols) {
+          if (opts?.preferredCurrency === "USD" && symbol === "BTC") {
+            map.set(symbol, fresh(65_000, "USD"));
+          } else if (opts?.preferredCurrency === "USD" && symbol === "ETH") {
+            map.set(symbol, fresh(3_500, "USD"));
+          } else if (opts?.preferredCurrency === "EUR" && symbol === "BTC") {
+            map.set(symbol, fresh(60_000, "EUR"));
+          }
+        }
+        return map;
+      },
+      async getFxRate() {
+        return { rate: 1, stale: false };
+      },
+    };
+
+    const result = await runAlerts({
+      db,
+      quotes: service,
+      notifier: fakeNotifier(),
+      now: NOW,
+    });
+
+    // Two alerts in USD plus one in EUR is two requests, not three.
+    expect(cryptoCalls).toHaveLength(2);
+    expect(cryptoCalls.map((c) => c.preferredCurrency).sort()).toEqual([
+      "EUR",
+      "USD",
+    ]);
+    const usdCall = cryptoCalls.find((c) => c.preferredCurrency === "USD");
+    expect([...usdCall!.symbols].sort()).toEqual(["BTC", "ETH"]);
+    const eurCall = cryptoCalls.find((c) => c.preferredCurrency === "EUR");
+    expect(eurCall!.symbols).toEqual(["BTC"]);
+
+    // None of the targets are crossed, so each alert's own quote (not a
+    // cross-currency one) lands on last_price.
+    expect(result).toEqual({ checked: 3, fired: 0, errors: 0 });
+    expect(getAlert(db, btcUsd.id)?.lastPrice).toBe(65_000);
+    expect(getAlert(db, btcEur.id)?.lastPrice).toBe(60_000);
+    expect(getAlert(db, ethUsd.id)?.lastPrice).toBe(3_500);
   });
 
   it("records a check without firing when the level is not crossed", async () => {

@@ -10,12 +10,16 @@ vi.mock("@/app/actions/alerts", () => ({
 
 import {
   AlertsManager,
+  buildEmptyForm,
   describeStatus,
   formatInstantUtc,
   nextFormAfterCreate,
   nextFormAfterKindChange,
+  resolveSubmittedCurrency,
 } from "@/components/AlertsManager";
 import type { PriceAlert } from "@/lib/alerts/types";
+
+const ALLOWED_CURRENCIES = ["EUR", "USD"];
 
 function alert(overrides: Partial<PriceAlert> = {}): PriceAlert {
   return {
@@ -44,7 +48,11 @@ function alert(overrides: Partial<PriceAlert> = {}): PriceAlert {
 describe("AlertsManager", () => {
   it("renders the add form and a threshold row", () => {
     const html = renderToStaticMarkup(
-      <AlertsManager alerts={[alert()]} telegramConfigured />,
+      <AlertsManager
+        alerts={[alert()]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
+        telegramConfigured
+      />,
     );
 
     expect(html).toContain("Add an alert");
@@ -67,6 +75,7 @@ describe("AlertsManager", () => {
             anchorPrice: 100_000,
           }),
         ]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -77,7 +86,11 @@ describe("AlertsManager", () => {
 
   it("warns when Telegram is not configured", () => {
     const html = renderToStaticMarkup(
-      <AlertsManager alerts={[]} telegramConfigured={false} />,
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
+        telegramConfigured={false}
+      />,
     );
     expect(html).toContain("TELEGRAM_BOT_TOKEN");
   });
@@ -86,6 +99,7 @@ describe("AlertsManager", () => {
     const html = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ enabled: false, lastError: "no quote available" })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -95,7 +109,11 @@ describe("AlertsManager", () => {
 
   it("says when nothing is set up yet", () => {
     const html = renderToStaticMarkup(
-      <AlertsManager alerts={[]} telegramConfigured />,
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
+        telegramConfigured
+      />,
     );
     expect(html).toContain("No alerts yet");
   });
@@ -128,12 +146,14 @@ describe("AlertsManager", () => {
       const coolingHtml = renderToStaticMarkup(
         <AlertsManager
           alerts={[alert({ lastFiredAt: recentFire, cooldownMinutes: 1440 })]}
+          allowedCurrencies={ALLOWED_CURRENCIES}
           telegramConfigured
         />,
       );
       const armedHtml = renderToStaticMarkup(
         <AlertsManager
           alerts={[alert({ lastFiredAt: oldFire, cooldownMinutes: 1440 })]}
+          allowedCurrencies={ALLOWED_CURRENCIES}
           telegramConfigured
         />,
       );
@@ -160,6 +180,7 @@ describe("AlertsManager", () => {
     const html = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ lastCheckedAt: checkedAt })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -172,6 +193,7 @@ describe("AlertsManager", () => {
     const htmlNull = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ lastCheckedAt: null })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -188,20 +210,47 @@ describe("AlertsManager", () => {
       percentWhole: "5",
       cooldownMinutes: "60",
       label: "take profit",
+      currency: "USD",
     };
+    const empty = buildEmptyForm(ALLOWED_CURRENCIES);
 
-    const afterFailure = nextFormAfterCreate(typed, {
-      ok: false,
-      error:
-        "The price for FOO could not be refreshed right now. Try again shortly.",
-    });
+    const afterFailure = nextFormAfterCreate(
+      typed,
+      {
+        ok: false,
+        error:
+          "The price for FOO could not be refreshed right now. Try again shortly.",
+      },
+      empty,
+    );
     expect(afterFailure).toEqual(typed);
 
-    const afterSuccess = nextFormAfterCreate(typed, { ok: true });
+    const afterSuccess = nextFormAfterCreate(typed, { ok: true }, empty);
     expect(afterSuccess).not.toEqual(typed);
     expect(afterSuccess.symbol).toBe("");
     expect(afterSuccess.targetPrice).toBe("");
     expect(afterSuccess.label).toBe("");
+    expect(afterSuccess.currency).toBe("EUR");
+  });
+
+  it("buildEmptyForm defaults currency to the first allowed currency (the base currency)", () => {
+    expect(buildEmptyForm(["EUR", "USD"]).currency).toBe("EUR");
+    expect(buildEmptyForm(["USD", "EUR"]).currency).toBe("USD");
+  });
+
+  it("resolveSubmittedCurrency uses the form's pick for crypto, and the base currency for equity", () => {
+    expect(
+      resolveSubmittedCurrency(
+        { assetClass: "crypto", currency: "USD" },
+        ["EUR", "USD"],
+      ),
+    ).toBe("USD");
+    expect(
+      resolveSubmittedCurrency(
+        { assetClass: "equity", currency: "USD" },
+        ["EUR", "USD"],
+      ),
+    ).toBe("EUR");
   });
 
   it("nextFormAfterKindChange resets direction to a value valid for the new kind", () => {
@@ -217,6 +266,7 @@ describe("AlertsManager", () => {
         percentWhole: "5",
         cooldownMinutes: "1440",
         label: "",
+        currency: "EUR",
       },
       "percent_move",
     );
@@ -235,6 +285,7 @@ describe("AlertsManager", () => {
         percentWhole: "5",
         cooldownMinutes: "1440",
         label: "",
+        currency: "EUR",
       },
       "threshold",
     );
@@ -246,6 +297,7 @@ describe("AlertsManager", () => {
     const html = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ enabled: false, lastError: "no quote available" })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -258,6 +310,7 @@ describe("AlertsManager", () => {
     const html = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ enabled: false, lastError: null })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
@@ -271,9 +324,76 @@ describe("AlertsManager", () => {
     const html = renderToStaticMarkup(
       <AlertsManager
         alerts={[alert({ lastFiredAt: null })]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
         telegramConfigured
       />,
     );
     expect(html).toContain("Armed");
+  });
+
+  it("renders a currency select for the (default, crypto) create form, base currency first and selected", () => {
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={["EUR", "USD"]}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain('name="currency"');
+    // React's SSR marks the option matching the controlled <select>'s value
+    // with `selected=""`, so this also proves EUR (the base currency) is
+    // pre-selected, not merely present.
+    const eurIndex = html.indexOf('<option value="EUR" selected="">EUR</option>');
+    const usdIndex = html.indexOf('<option value="USD">USD</option>');
+    expect(eurIndex).toBeGreaterThan(-1);
+    expect(usdIndex).toBeGreaterThan(eurIndex);
+  });
+
+  it("hides the currency select when only one currency is allowed", () => {
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={["EUR"]}
+        telegramConfigured
+      />,
+    );
+    expect(html).not.toContain('name="currency"');
+  });
+
+  it("labels the target-price field with the currency the alert will actually use", () => {
+    const eurFirst = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={["EUR", "USD"]}
+        telegramConfigured
+      />,
+    );
+    expect(eurFirst).toContain("Target price (EUR)");
+
+    const usdFirst = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={["USD", "EUR"]}
+        telegramConfigured
+      />,
+    );
+    expect(usdFirst).toContain("Target price (USD)");
+  });
+
+  it("renders each alert's own currency in the table, even when they differ", () => {
+    const html = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[
+          alert({ id: "eur-alert", symbol: "BTC", currency: "EUR" }),
+          alert({ id: "usd-alert", symbol: "ETH", currency: "USD" }),
+        ]}
+        allowedCurrencies={ALLOWED_CURRENCIES}
+        telegramConfigured
+      />,
+    );
+    expect(html).toContain("above €100,000.00");
+    expect(html).toContain("above $100,000.00");
+    expect(html).toContain("€97,100.00");
+    expect(html).toContain("$97,100.00");
   });
 });

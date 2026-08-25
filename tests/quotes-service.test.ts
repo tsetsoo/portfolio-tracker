@@ -168,6 +168,226 @@ describe("quote service cache", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the base currency for crypto quotes when no preferredCurrency is given", async () => {
+    // This is the dashboard's path (value-portfolio.ts calls getCryptoQuotes
+    // with no preferredCurrency) — it must keep resolving in the portfolio's
+    // base currency exactly as before.
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 98_400, usd: 106_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(service.getCryptoQuotes(["BTC"])).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 98_400,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+  });
+
+  it("honours preferredCurrency for crypto quotes, fetching and returning the requested currency", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 98_400, usd: 106_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "USD" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 106_000,
+            currency: "USD",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+  });
+
+  it("honours a fiat preferredCurrency that is neither EUR nor USD (GBP)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { gbp: 90_000, usd: 110_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "GBP" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 90_000,
+            currency: "GBP",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=gbp,usd",
+    );
+  });
+
+  it("falls back to the base currency for a non-fiat preferredCurrency (USDT)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 98_400, usd: 106_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "USDT" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 98_400,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur,usd",
+    );
+  });
+
+  it("does not let a cached EUR crypto row satisfy a USD crypto request", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 98_400, "EUR", "2026-07-25T11:55:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 99_000, usd: 108_500 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "USD" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 108_500,
+            currency: "USD",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    // The EUR row was fresh (within TTL) but must not have been treated as a
+    // hit for the USD request — proof: CoinGecko was actually queried.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a cached USD crypto row satisfy a EUR crypto request", async () => {
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 108_500, "USD", "2026-07-25T11:55:00.000Z");
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ bitcoin: { eur: 99_000, usd: 110_000 } }),
+        { status: 200 },
+      ),
+    );
+    const service = createQuoteService(db, fetchImpl);
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], { preferredCurrency: "EUR" }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 99_000,
+            currency: "EUR",
+            stale: false,
+            fetchedAt: "2026-07-25T12:00:00.000Z",
+          },
+        ],
+      ]),
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the requested currency's own cached row, not another currency's, when the provider fails", async () => {
+    // The EUR row is the most recently fetched of the two, so the old
+    // "most recent regardless of currency" fallback would return it for a
+    // USD request. That must not happen: the stale fallback must honour the
+    // currency actually being asked for.
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 98_400, "EUR", "2026-07-25T11:59:00.000Z");
+    db.prepare(
+      `INSERT INTO price_cache
+         (symbol, asset_class, price, currency, fetched_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("BTC", "crypto", 108_000, "USD", "2026-07-25T11:30:00.000Z");
+
+    const service = createQuoteService(
+      db,
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("offline")),
+    );
+
+    await expect(
+      service.getCryptoQuotes(["BTC"], {
+        preferredCurrency: "USD",
+        force: true,
+      }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          "BTC",
+          {
+            price: 108_000,
+            currency: "USD",
+            stale: true,
+            fetchedAt: "2026-07-25T11:30:00.000Z",
+          },
+        ],
+      ]),
+    );
+  });
+
   it("fetches and caches an FX rate", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(

@@ -59,11 +59,11 @@ describe("resolveAlertSymbol", () => {
     ).rejects.toThrow(/price/i);
   });
 
-  it("resolves an equity through the quote service and keeps its currency", async () => {
+  it("resolves an equity through the quote service in the requested currency", async () => {
     const resolved = await resolveAlertSymbol(
       "aapl",
       "equity",
-      "EUR",
+      "USD",
       quotes({ AAPL: fresh(180, "USD") }),
     );
     expect(resolved).toEqual({
@@ -97,9 +97,46 @@ describe("resolveAlertSymbol", () => {
     const resolved = await resolveAlertSymbol(
       "aapl",
       "equity",
-      "EUR",
+      "USD",
       quotes({ AAPL: { ...fresh(180, "USD"), stale: true } }),
     );
     expect(resolved.stale).toBe(true);
+  });
+
+  it("rejects a quote returned in a different currency than requested", async () => {
+    // pickVsPrice (CoinGecko) deliberately degrades to USD when it has no
+    // price in the requested currency, and Yahoo can return a listing's
+    // native currency; a silently-wrong currency would otherwise be frozen
+    // onto the alert forever.
+    await expect(
+      resolveAlertSymbol("btc", "crypto", "EUR", quotes({ BTC: fresh(96_400, "USD") })),
+    ).rejects.toThrow(/currency/i);
+  });
+
+  it("resolves a crypto alert requested in USD with a USD anchor price", async () => {
+    const usdQuotes: QuoteService = {
+      async getQuote() {
+        throw new Error("not used for crypto");
+      },
+      async getCryptoQuotes(symbols, opts) {
+        const map = new Map<string, Quote>();
+        for (const symbol of symbols) {
+          map.set(symbol, fresh(97_000, opts?.preferredCurrency ?? "EUR"));
+        }
+        return map;
+      },
+      async getFxRate() {
+        return { rate: 1, stale: false };
+      },
+    };
+
+    const resolved = await resolveAlertSymbol("btc", "crypto", "USD", usdQuotes);
+
+    expect(resolved).toEqual({
+      symbol: "BTC",
+      price: 97_000,
+      currency: "USD",
+      stale: false,
+    });
   });
 });

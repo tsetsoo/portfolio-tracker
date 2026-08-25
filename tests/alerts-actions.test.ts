@@ -173,8 +173,11 @@ describe("createAlertAction", () => {
   });
 
   it("rejects creating an alert when the equity quote came back stale", async () => {
+    // Requested currency defaults to the portfolio base (EUR): the quote
+    // must match that so this test exercises the staleness check, not the
+    // separate currency-mismatch rejection in resolveAlertSymbol.
     quoteServiceRef.current = quotesReturning({
-      ...fresh(180, "USD"),
+      ...fresh(180, "EUR"),
       stale: true,
     });
 
@@ -197,5 +200,45 @@ describe("createAlertAction", () => {
 
     expect(result).toEqual({ ok: true });
     expect(listAlerts(db)).toHaveLength(1);
+  });
+
+  it("rejects a currency outside the allowed set, before any quote call", async () => {
+    const calls: string[] = [];
+    quoteServiceRef.current = {
+      async getQuote() {
+        calls.push("getQuote");
+        return fresh(96_400);
+      },
+      async getCryptoQuotes(symbols) {
+        calls.push("getCryptoQuotes");
+        return new Map(symbols.map((s) => [s, fresh(96_400)]));
+      },
+      async getFxRate() {
+        return { rate: 1, stale: false };
+      },
+    };
+
+    // No lots in this database, so the only allowed currency is the base
+    // (EUR, from migrate's default settings row).
+    const result = await createAlertAction(baseInput({ currency: "GBP" }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("EUR");
+    }
+    // The point of validating up front: a bad currency never burns a
+    // rate-limited quote request.
+    expect(calls).toEqual([]);
+    expect(listAlerts(db)).toEqual([]);
+  });
+
+  it("defaults to the base currency when none is given", async () => {
+    quoteServiceRef.current = quotesReturning(fresh(96_400, "EUR"));
+
+    const result = await createAlertAction(baseInput());
+
+    expect(result).toEqual({ ok: true });
+    const [alert] = listAlerts(db);
+    expect(alert.currency).toBe("EUR");
   });
 });
