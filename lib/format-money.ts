@@ -1,10 +1,15 @@
 const isoCurrencyCache = new Map<string, boolean>();
 
 /**
- * Whether `code` is a real ISO-4217 fiat currency (as opposed to a crypto
- * ticker or stablecoin symbol like USDT/CRO/BNB). Probes Intl.NumberFormat
- * rather than maintaining our own currency list, and memoizes the result
- * since the probe allocates a formatter.
+ * Whether Intl will format `code` as a currency — which is NOT the same as
+ * `code` being a real ISO-4217 currency. Intl accepts any well-formed
+ * three-letter code, so CRO and BNB both pass here; USDT fails only because
+ * it has four letters. A caller that needs genuine ISO-4217 membership must
+ * intersect with `Intl.supportedValuesOf("currency")` — see
+ * `allowedAlertCurrencies` in lib/alerts/currencies.ts, which does exactly
+ * that to keep crypto denominations out of the alert currency list.
+ *
+ * Memoized because the probe allocates a formatter.
  */
 export function isFiatCurrency(code: string): boolean {
   const normalized = code.trim().toUpperCase();
