@@ -10,12 +10,12 @@ vi.mock("@/app/actions/alerts", () => ({
 
 import {
   AlertsManager,
+  buildCreateAlertInput,
   buildEmptyForm,
   describeStatus,
   formatInstantUtc,
   nextFormAfterCreate,
   nextFormAfterKindChange,
-  resolveSubmittedCurrency,
 } from "@/components/AlertsManager";
 import type { PriceAlert } from "@/lib/alerts/types";
 
@@ -82,6 +82,24 @@ describe("AlertsManager", () => {
 
     expect(html).toContain("±5%");
     expect(html).toContain("€100,000.00");
+  });
+
+  it("offers the currency picker whenever more than one currency is allowed", () => {
+    // The gate is the currency list alone now; it used to also require the
+    // asset class to be crypto.
+    const withChoice = renderToStaticMarkup(
+      <AlertsManager
+        alerts={[]}
+        allowedCurrencies={["EUR", "USD"]}
+        telegramConfigured
+      />,
+    );
+    expect(withChoice).toContain('name="currency"');
+
+    const noChoice = renderToStaticMarkup(
+      <AlertsManager alerts={[]} allowedCurrencies={["EUR"]} telegramConfigured />,
+    );
+    expect(noChoice).not.toContain('name="currency"');
   });
 
   it("warns when Telegram is not configured", () => {
@@ -238,19 +256,37 @@ describe("AlertsManager", () => {
     expect(buildEmptyForm(["USD", "EUR"]).currency).toBe("USD");
   });
 
-  it("resolveSubmittedCurrency uses the form's pick for crypto, and the base currency for equity", () => {
-    expect(
-      resolveSubmittedCurrency(
-        { assetClass: "crypto", currency: "USD" },
-        ["EUR", "USD"],
-      ),
-    ).toBe("USD");
-    expect(
-      resolveSubmittedCurrency(
-        { assetClass: "equity", currency: "USD" },
-        ["EUR", "USD"],
-      ),
-    ).toBe("EUR");
+
+  it("carries the form's currency onto an equity alert, not the base currency", () => {
+    // Equities were pinned to allowedCurrencies[0] (the base currency), which
+    // made every USD level on a US listing uncreatable: with EUR forced,
+    // yahooSymbolCandidates hunts .DE/.PA/.AS/.MI ahead of the bare ticker.
+    const input = buildCreateAlertInput({
+      ...buildEmptyForm(["EUR", "USD"]),
+      symbol: "TSLA",
+      assetClass: "equity",
+      kind: "threshold",
+      direction: "below",
+      targetPrice: "280",
+      currency: "USD",
+    });
+
+    expect(input.currency).toBe("USD");
+    expect(input.assetClass).toBe("equity");
+    expect(input.targetPrice).toBe(280);
+  });
+
+  it("still carries the form's currency for crypto", () => {
+    const input = buildCreateAlertInput({
+      ...buildEmptyForm(["EUR", "USD"]),
+      symbol: "BTC",
+      currency: "USD",
+      targetPrice: "60000",
+      direction: "below",
+    });
+
+    expect(input.currency).toBe("USD");
+    expect(input.assetClass).toBe("crypto");
   });
 
   it("nextFormAfterKindChange resets direction to a value valid for the new kind", () => {

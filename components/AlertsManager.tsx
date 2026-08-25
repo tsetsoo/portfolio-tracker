@@ -76,22 +76,6 @@ export function nextFormAfterCreate(
 }
 
 /**
- * The currency an alert will actually be created with, given the current
- * form. Crypto alerts let the user pick from `allowedCurrencies` via the
- * select below; equity alerts always use the base currency (the first
- * allowed one) because Yahoo returns a listing's own currency, and honoring
- * a hidden/stale pick there would mostly manufacture create-time failures.
- * Used both to build the submitted `CreateAlertInput` and to label the
- * target-price field, so the two can never disagree.
- */
-export function resolveSubmittedCurrency(
-  form: Pick<FormState, "assetClass" | "currency">,
-  allowedCurrencies: string[],
-): string {
-  return form.assetClass === "crypto" ? form.currency : allowedCurrencies[0];
-}
-
-/**
  * The next form state after the user switches alert kind. `direction` is
  * always reset to the new kind's default, never carried over from the old
  * one: threshold takes only `above`/`below` and percent_move only takes
@@ -111,17 +95,21 @@ export function nextFormAfterKindChange(
   };
 }
 
-function buildCreateAlertInput(
-  form: FormState,
-  allowedCurrencies: string[],
-): CreateAlertInput {
+/**
+ * The `CreateAlertInput` a submitted form stands for. `currency` is the
+ * form's own pick for every asset class, equities included: the create
+ * action validates it against `allowedAlertCurrencies` server-side, and
+ * `resolveAlertSymbol` proves the symbol actually quotes in it before the
+ * alert is stored.
+ */
+export function buildCreateAlertInput(form: FormState): CreateAlertInput {
   const cooldownRaw = form.cooldownMinutes.trim();
   const input: CreateAlertInput = {
     symbol: form.symbol,
     assetClass: form.assetClass,
     kind: form.kind,
     direction: form.direction,
-    currency: resolveSubmittedCurrency(form, allowedCurrencies),
+    currency: form.currency,
     cooldownMinutes: cooldownRaw === "" ? 1440 : Number(cooldownRaw),
     label: form.label.trim() || undefined,
   };
@@ -239,7 +227,7 @@ export function AlertsManager({
   }
 
   function submit() {
-    const input = buildCreateAlertInput(form, allowedCurrencies);
+    const input = buildCreateAlertInput(form);
 
     startTransition(async () => {
       const result = await createAlertAction(input);
@@ -250,9 +238,8 @@ export function AlertsManager({
     });
   }
 
-  const showCurrencyPicker =
-    form.assetClass === "crypto" && allowedCurrencies.length > 1;
-  const displayCurrency = resolveSubmittedCurrency(form, allowedCurrencies);
+  const showCurrencyPicker = allowedCurrencies.length > 1;
+  const displayCurrency = form.currency;
 
   return (
     <div className="grid gap-5">
@@ -428,11 +415,16 @@ export function AlertsManager({
           <p className="text-[11px] leading-relaxed text-faint">
             The price is fetched now: a percent alert measures from it, and a
             threshold alert quotes it in the notification. Crypto symbols must
-            exist in the CoinGecko map. There is no edit: change an alert by
-            deleting and re-creating it, which resets a percent alert&rsquo;s
-            baseline. An alert&rsquo;s currency is frozen at create time, so
-            changing the portfolio base currency strands existing alerts on a
-            currency mismatch until you re-create them.
+            exist in the CoinGecko map. Pick the currency the symbol actually
+            trades in &mdash; a US listing quotes in USD, and asking for EUR
+            makes the lookup try <code>.DE</code>/<code>.PA</code>/
+            <code>.AS</code>/<code>.MI</code> first, which can resolve to a
+            different instrument with the same ticker. There is no edit:
+            change an alert by deleting and re-creating it, which resets a
+            percent alert&rsquo;s baseline. An alert&rsquo;s currency is
+            frozen at create time, so changing the portfolio base currency
+            strands existing alerts on a currency mismatch until you
+            re-create them.
           </p>
         </form>
       </Card>
