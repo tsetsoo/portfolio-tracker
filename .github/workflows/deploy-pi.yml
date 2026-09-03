@@ -13,6 +13,12 @@ on:
       - "docs/**"
       - "**/*.md"
       - ".gitignore"
+      # Host-side scripts and units are copied to the Pi by hand and never
+      # reach the standalone tree, so editing one cannot change the artifact.
+      # deploy/pi/Dockerfile is deliberately not listed here.
+      - "deploy/**/*.sh"
+      - "deploy/**/*.service"
+      - "deploy/**/*.timer"
   workflow_dispatch:
 
 permissions:
@@ -23,8 +29,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Match deploy/pi/Dockerfile's NODE_IMAGE.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
   deploy-pi:
     name: Build armv7 (Buster) + publish pi-latest
+    # Gate the deploy: a red suite must not reach the Pi. The armv7 build costs
+    # ~20 min, so failing here also saves the runner time.
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
