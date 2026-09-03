@@ -19,13 +19,17 @@ on:
       - "deploy/**/*.sh"
       - "deploy/**/*.service"
       - "deploy/**/*.timer"
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: deploy-pi
+  # Scoped by ref: without this a pull-request run would cancel an in-flight
+  # deploy of main, since both would share one group.
+  group: deploy-pi-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -50,6 +54,8 @@ jobs:
     # Gate the deploy: a red suite must not reach the Pi. The armv7 build costs
     # ~20 min, so failing here also saves the runner time.
     needs: test
+    # The suite also runs on pull requests; publishing must not.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
